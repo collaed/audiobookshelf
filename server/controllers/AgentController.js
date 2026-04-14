@@ -11,10 +11,9 @@ const QualityManager = require('../managers/QualityManager')
  * @typedef {Request & RequestUserObject} RequestWithUser
  */
 
-// Native audiobookshelf tasks + CineCross-compatible tasks
 const VALID_TASK_TYPES = [
   'scan_incoming', 'identify_book', 'check_quality', 'move_file', 'download_metadata',
-  'scan_incoming_audio', 'audio_quality', 'audio_identify'
+  'scan_incoming_audio', 'audio_quality', 'audio_identify', 'audio_clean'
 ]
 
 class AgentController {

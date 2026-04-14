@@ -300,6 +300,143 @@ def task_download_metadata(params, config):
         return {"error": str(e)}
 
 
+def task_audio_clean(params, config):
+    """Clean/restore old audiobook audio using ffmpeg filters.
+
+    Profiles:
+      light    — gentle denoise, good for mild hiss
+      moderate — denoise + dynamic compression, for scratchy recordings
+      heavy    — aggressive denoise + EQ + compression, for very old tapes
+      custom   — pass your own ffmpeg af filter chain
+
+    Params:
+      path: source file (server path)
+      profile: light|moderate|heavy|custom (default: moderate)
+      custom_filter: ffmpeg -af string (only for custom profile)
+      output_format: mp3|m4b|flac|same (default: same)
+      keep_original: true|false (default: true, renames to .original.ext)
+    """
+    p = params.get("path", "")
+    mp = map_path(p, config)
+    if not os.path.isfile(mp):
+        return {"error": "file not found", "path": p}
+
+    profile = params.get("profile", "moderate")
+    keep_original = params.get("keep_original", True)
+    output_format = params.get("output_format", "same")
+
+    # Build filter chain based on profile
+    filters = {
+        "light": (
+            # High-pass to remove rumble, gentle noise reduction
+            "highpass=f=80,"
+            "afftdn=nf=-20,"
+            "acompressor=threshold=-20dB:ratio=2:attack=200:release=1000"
+        ),
+        "moderate": (
+            # Remove rumble + hiss, normalize levels, compress dynamics
+            "highpass=f=80,"
+            "lowpass=f=12000,"
+            "afftdn=nf=-25:nt=w,"
+            "acompressor=threshold=-18dB:ratio=3:attack=100:release=800,"
+            "loudnorm=I=-16:TP=-1.5:LRA=11"
+        ),
+        "heavy": (
+            # Aggressive: cut more spectrum, strong denoise, EQ for voice clarity, hard compression
+            "highpass=f=120,"
+            "lowpass=f=8000,"
+            "afftdn=nf=-30:nt=w:om=o,"
+            "equalizer=f=300:t=q:w=1:g=-3,"
+            "equalizer=f=2500:t=q:w=1.5:g=4,"
+            "equalizer=f=5000:t=q:w=1:g=2,"
+            "acompressor=threshold=-15dB:ratio=4:attack=50:release=500:makeup=2,"
+            "loudnorm=I=-16:TP=-1.5:LRA=7"
+        ),
+    }
+
+    if profile == "custom":
+        af = params.get("custom_filter", "")
+        if not af:
+            return {"error": "custom profile requires custom_filter param"}
+    else:
+        af = filters.get(profile)
+        if not af:
+            return {"error": f"unknown profile: {profile}. Use: light, moderate, heavy, custom"}
+
+    # Determine output path
+    base, ext = os.path.splitext(mp)
+    if output_format != "same":
+        out_ext = f".{output_format}"
+    else:
+        out_ext = ext
+    tmp_out = base + ".cleaned" + out_ext
+
+    # Build ffmpeg command
+    cmd = ["ffmpeg", "-y", "-i", mp, "-af", af]
+    # Preserve chapters and metadata
+    cmd += ["-map_metadata", "0", "-map_chapters", "0"]
+    # Codec selection
+    if out_ext in (".mp3",):
+        cmd += ["-codec:a", "libmp3lame", "-q:a", "2"]
+    elif out_ext in (".m4b", ".m4a"):
+        cmd += ["-codec:a", "aac", "-b:a", "128k"]
+    elif out_ext in (".flac",):
+        cmd += ["-codec:a", "flac"]
+    elif out_ext in (".ogg", ".opus"):
+        cmd += ["-codec:a", "libopus", "-b:a", "96k"]
+    else:
+        cmd += ["-codec:a", "aac", "-b:a", "128k"]
+    cmd.append(tmp_out)
+
+    log(f"[clean] {os.path.basename(mp)} profile={profile}")
+    log(f"[clean] Filter: {af[:80]}...")
+
+    try:
+        t0 = time.time()
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        elapsed = time.time() - t0
+
+        if result.returncode != 0:
+            # Clean up failed output
+            if os.path.exists(tmp_out):
+                os.remove(tmp_out)
+            return {"error": result.stderr[-500:], "path": p}
+
+        new_size = os.path.getsize(tmp_out)
+        old_size = os.path.getsize(mp)
+
+        if keep_original:
+            orig_path = base + ".original" + ext
+            os.rename(mp, orig_path)
+            os.rename(tmp_out, base + out_ext)
+            log(f"[clean] Original saved as {os.path.basename(orig_path)}")
+        else:
+            if mp != base + out_ext:
+                os.rename(tmp_out, base + out_ext)
+            else:
+                os.remove(mp)
+                os.rename(tmp_out, mp)
+
+        log(f"[clean] Done in {elapsed:.0f}s: {old_size // 1048576}MB -> {new_size // 1048576}MB")
+
+        return {
+            "path": p,
+            "profile": profile,
+            "elapsed": round(elapsed, 1),
+            "old_size": old_size,
+            "new_size": new_size,
+            "kept_original": keep_original,
+        }
+    except subprocess.TimeoutExpired:
+        if os.path.exists(tmp_out):
+            os.remove(tmp_out)
+        return {"error": "timeout (>1h)", "path": p}
+    except Exception as e:
+        if os.path.exists(tmp_out):
+            os.remove(tmp_out)
+        return {"error": str(e), "path": p}
+
+
 def task_diag(params, config):
     """Diagnostic: system info, path checks, disk space."""
     import platform
@@ -350,13 +487,14 @@ TASK_HANDLERS = {
     "check_quality": task_audio_quality,
     "audio_identify": task_audio_identify,
     "identify_book": task_audio_identify,
+    "audio_clean": task_audio_clean,
     "move_file": task_move_file,
     "download_metadata": task_download_metadata,
     "diag": task_diag,
     "update_agent": task_update_agent,
 }
 
-BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata"}
+BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata", "audio_clean"}
 
 
 def run_task(ttype, params, config):
