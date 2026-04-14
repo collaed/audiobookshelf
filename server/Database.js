@@ -10,6 +10,9 @@ const Auth = require('./Auth')
 
 const MigrationManager = require('./managers/MigrationManager')
 
+const IncomingItem = require('./models/IncomingItem')
+const ListenerProfile = require('./models/ListenerProfile')
+
 class Database {
   constructor() {
     this.sequelize = null
@@ -160,6 +163,16 @@ class Database {
   /** @type {typeof import('./models/Device')} */
   get deviceModel() {
     return this.models.device
+  }
+
+  /** @type {typeof import('./models/IncomingItem')} */
+  get incomingItemModel() {
+    return this.models.incomingItem
+  }
+
+  /** @type {typeof import('./models/ListenerProfile')} */
+  get listenerProfileModel() {
+    return this.models.listenerProfile
   }
 
   /**
@@ -345,6 +358,8 @@ class Database {
     require('./models/Setting').init(this.sequelize)
     require('./models/CustomMetadataProvider').init(this.sequelize)
     require('./models/MediaItemShare').init(this.sequelize)
+    IncomingItem.init(this.sequelize)
+    ListenerProfile.init(this.sequelize)
 
     return this.sequelize.sync({ force, alter: false })
   }

@@ -35,6 +35,10 @@ const MiscController = require('../controllers/MiscController')
 const ShareController = require('../controllers/ShareController')
 const StatsController = require('../controllers/StatsController')
 const ApiKeyController = require('../controllers/ApiKeyController')
+const IncomingController = require('../controllers/IncomingController')
+const RecommendationController = require('../controllers/RecommendationController')
+const IntelligenceController = require('../controllers/IntelligenceController')
+const AgentController = require('../controllers/AgentController')
 
 class ApiRouter {
   constructor(Server) {
@@ -334,6 +338,42 @@ class ApiRouter {
     this.router.post('/api-keys', ApiKeyController.middleware.bind(this), ApiKeyController.create.bind(this))
     this.router.patch('/api-keys/:id', ApiKeyController.middleware.bind(this), ApiKeyController.update.bind(this))
     this.router.delete('/api-keys/:id', ApiKeyController.middleware.bind(this), ApiKeyController.delete.bind(this))
+
+    //
+    // Incoming Routes
+    //
+    this.router.get('/incoming', IncomingController.getAll.bind(this))
+    this.router.get('/incoming/pending', IncomingController.getPending.bind(this))
+    this.router.post('/incoming/:id/confirm', IncomingController.confirm.bind(this))
+    this.router.post('/incoming/:id/reject', IncomingController.reject.bind(this))
+    this.router.post('/incoming/scan', IncomingController.scan.bind(this))
+
+    //
+    // Recommendation Routes
+    //
+    this.router.get('/recommendations/profile', RecommendationController.getProfile.bind(this))
+    this.router.post('/recommendations/profile/rebuild', RecommendationController.rebuildProfile.bind(this))
+    this.router.get('/recommendations/:category', RecommendationController.getRecommendations.bind(this))
+
+    //
+    // Intelligence Routes
+    //
+    this.router.get('/intelligence/library/:id/quality', IntelligenceController.getLibraryQuality.bind(this))
+    this.router.get('/intelligence/library/:id/series-gaps', IntelligenceController.getSeriesGaps.bind(this))
+    this.router.get('/intelligence/library/:id/narrator-consistency', IntelligenceController.getNarratorConsistency.bind(this))
+    this.router.get('/intelligence/stats', IntelligenceController.getDurationStats.bind(this))
+    this.router.get('/intelligence/space-savers', IntelligenceController.getSpaceSavers.bind(this))
+    this.router.get('/intelligence/activity', IntelligenceController.getActivityFeed.bind(this))
+    this.router.get('/intelligence/compare/:userId', IntelligenceController.compareTastes.bind(this))
+    this.router.get('/intelligence/community-recommendations', IntelligenceController.getCommunityRecommendations.bind(this))
+
+    //
+    // Agent Routes
+    //
+    this.router.post('/agent/heartbeat', AgentController.heartbeat.bind(this))
+    this.router.post('/agent/tasks', AgentController.queueTask.bind(this))
+    this.router.get('/agent/tasks', AgentController.getTasks.bind(this))
+    this.router.get('/agent/agents', AgentController.getAgents.bind(this))
 
     //
     // Misc Routes
