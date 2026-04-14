@@ -45,6 +45,7 @@ const DeliveryController = require('../controllers/DeliveryController')
 const LibraryToolsController = require('../controllers/LibraryToolsController')
 const SyncController = require('../controllers/SyncController')
 const LanguageLearningController = require('../controllers/LanguageLearningController')
+const AiController = require('../controllers/AiController')
 
 class ApiRouter {
   constructor(Server) {
@@ -420,6 +421,15 @@ class ApiRouter {
     this.router.post('/language/interleave-text', LanguageLearningController.interleaveText.bind(this))
     this.router.post('/language/interleave-audio', LanguageLearningController.interleaveAudio.bind(this))
     this.router.post('/language/align', LanguageLearningController.previewAlignment.bind(this))
+
+    // AI / LLM
+    this.router.get('/ai/status', AiController.status.bind(this))
+    this.router.get('/ai/recap/:bookId', AiController.getRecap.bind(this))
+    this.router.get('/ai/chapter-summary/:bookId/:chapterIndex', AiController.getChapterSummary.bind(this))
+    this.router.post('/ai/search', AiController.smartSearch.bind(this))
+    this.router.post('/ai/ask/:bookId', AiController.askAboutBook.bind(this))
+    this.router.post('/ai/character/:bookId', AiController.getCharacter.bind(this))
+    this.router.post('/ai/check-alignment', AiController.checkAlignment.bind(this))
 
     //
     // Misc Routes
