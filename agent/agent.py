@@ -1,78 +1,125 @@
 #!/usr/bin/env python3
-"""Audiobookshelf agent — polls server for tasks, executes them, reports results."""
+"""Audiobookshelf agent — polls server for tasks, executes them, reports results.
+Compatible with CineCross agent protocol. Can run standalone or alongside CineCross."""
 import argparse, json, os, socket, subprocess, shutil, threading, time, urllib.request, urllib.error
 
-AGENT_VERSION = "1.0.04141500"
+AGENT_VERSION = "1.1.04141536"
 BUFFER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_buffer.json")
 POLL_INTERVAL = 15
 AUDIO_EXTS = {".mp3", ".m4a", ".m4b", ".flac", ".ogg", ".opus", ".wma", ".aac", ".wav"}
 
 pending_result = None
 bg_lock = threading.Lock()
-bg_thread = None
+
+
+def log(msg):
+    print(f"{time.strftime('%H:%M:%S')} {msg}")
 
 
 def load_buffer():
-    if os.path.exists(BUFFER_FILE):
-        with open(BUFFER_FILE) as f:
-            return json.load(f)
+    try:
+        if os.path.exists(BUFFER_FILE):
+            return json.load(open(BUFFER_FILE))
+    except: pass
     return []
 
 
 def save_buffer(buf):
-    with open(BUFFER_FILE, "w") as f:
-        json.dump(buf, f)
-
-
-def flush_buffer():
-    buf = load_buffer()
-    if buf:
-        save_buffer([])
-        return buf
-    return []
+    json.dump(buf, open(BUFFER_FILE, "w"))
 
 
 # --- Task handlers ---
 
-def task_scan_incoming(params):
+def task_scan_incoming_audio(params):
     folder = params.get("path", "/incoming")
-    files = []
+    min_size = params.get("min_size", 1000000)
+    found = []
     for root, _, names in os.walk(folder):
         for n in names:
             if os.path.splitext(n)[1].lower() in AUDIO_EXTS:
-                files.append(os.path.join(root, n))
-    return {"files": files, "count": len(files)}
+                fp = os.path.join(root, n)
+                try: sz = os.path.getsize(fp)
+                except: sz = 0
+                if sz > min_size:
+                    # Parse path structure for metadata hints
+                    rel = os.path.relpath(fp, folder).replace("\\", "/")
+                    parts = rel.split("/")
+                    parsed = {"author": "", "title": "", "series": "", "sequence": ""}
+                    if len(parts) >= 3:
+                        parsed["author"], parsed["series"] = parts[0], parts[1]
+                        parsed["title"] = os.path.splitext(parts[-1])[0]
+                    elif len(parts) == 2:
+                        parsed["author"] = parts[0]
+                        parsed["title"] = os.path.splitext(parts[1])[0]
+                    else:
+                        name = os.path.splitext(parts[0])[0]
+                        if " - " in name:
+                            parsed["author"], parsed["title"] = name.split(" - ", 1)
+                        else:
+                            parsed["title"] = name
+                    found.append({"path": fp, "filename": n, "size": sz, "parsed": parsed})
+    log(f"[scan] Found {len(found)} audio files in {folder}")
+    return {"files": found, "data": {"files": found}}
 
 
-def task_identify_book(params):
-    name = os.path.splitext(os.path.basename(params["file"]))[0]
-    parts = name.replace(" - ", "|").replace("_", " ").split("|", 1)
-    author = parts[0].strip() if len(parts) > 1 else "Unknown"
-    title = parts[1].strip() if len(parts) > 1 else parts[0].strip()
-    return {"author": author, "title": title}
+def task_audio_quality(params):
+    paths = params.get("paths", [params.get("file", "")])
+    data = {}
+    for p in [x for x in paths if x]:
+        if not os.path.isfile(p):
+            data[p] = {"error": "not found"}
+            continue
+        try:
+            out = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", p],
+                capture_output=True, text=True, timeout=30)
+            info = json.loads(out.stdout) if out.stdout.strip() else {}
+            fmt = info.get("format", {})
+            streams = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
+            a = streams[0] if streams else {}
+            data[p] = {
+                "duration": float(fmt.get("duration", 0)),
+                "bitrate": int(fmt.get("bit_rate", 0)) // 1000,
+                "format": fmt.get("format_name", ""),
+                "codec": a.get("codec_name", ""),
+                "channels": a.get("channels", 0),
+                "has_chapters": len(info.get("chapters", [])) > 0,
+                "chapter_count": len(info.get("chapters", [])),
+                "size": int(fmt.get("size", 0)),
+            }
+        except Exception as e:
+            data[p] = {"error": str(e)}
+    return {"checked": len(data), "data": data}
 
 
-def task_check_quality(params):
-    cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", "-show_format", params["file"]]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        return {"error": r.stderr.strip()}
-    info = json.loads(r.stdout)
-    stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "audio"), {})
-    fmt = info.get("format", {})
-    return {
-        "codec": stream.get("codec_name"),
-        "bitrate": int(fmt.get("bit_rate", 0)),
-        "channels": int(stream.get("channels", 0)),
-        "duration": float(fmt.get("duration", 0)),
-    }
+def task_audio_identify(params):
+    p = params.get("path", params.get("file", ""))
+    if not os.path.isfile(p):
+        return {"error": "not found"}
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", p],
+            capture_output=True, text=True, timeout=15)
+        info = json.loads(out.stdout) if out.stdout.strip() else {}
+        tags = {k.lower(): v for k, v in info.get("format", {}).get("tags", {}).items()}
+        return {
+            "path": p, "title": tags.get("title", ""), "album": tags.get("album", ""),
+            "artist": tags.get("artist", tags.get("album_artist", "")),
+            "genre": tags.get("genre", ""), "date": tags.get("date", ""),
+            "duration": float(info.get("format", {}).get("duration", 0)),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def task_move_file(params):
-    src, dst = params["src"], params["dst"]
+    src, dst = params.get("source", params.get("src", "")), params.get("destination", params.get("dst", ""))
+    if not src or not dst:
+        return {"error": "missing source or destination"}
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.move(src, dst)
-    return {"moved": dst}
+    log(f"[move] {os.path.basename(src)} -> {dst}")
+    return {"moved": True, "source": src, "destination": dst}
 
 
 def task_download_metadata(params):
@@ -88,12 +135,17 @@ def task_download_metadata(params):
 
 
 HANDLERS = {
-    "scan_incoming": task_scan_incoming,
-    "identify_book": task_identify_book,
-    "check_quality": task_check_quality,
+    "scan_incoming": task_scan_incoming_audio,
+    "scan_incoming_audio": task_scan_incoming_audio,
+    "check_quality": task_audio_quality,
+    "audio_quality": task_audio_quality,
+    "identify_book": task_audio_identify,
+    "audio_identify": task_audio_identify,
     "move_file": task_move_file,
     "download_metadata": task_download_metadata,
 }
+
+BG_TASKS = {"scan_incoming", "scan_incoming_audio"}
 
 
 def run_task(task):
@@ -107,31 +159,30 @@ def run_task(task):
         except Exception as e:
             result = {"error": str(e)}
     with bg_lock:
-        pending_result = {"taskId": task.get("id"), "type": task["type"], "result": result}
+        pending_result = {"taskId": task.get("id"), "type": task["type"], "data": result}
 
 
 def heartbeat(server, agent_id, result_payload):
     body = json.dumps({
-        "agentId": agent_id,
-        "version": AGENT_VERSION,
-        "hostname": socket.gethostname(),
-        "result": result_payload,
+        "agentId": agent_id, "version": AGENT_VERSION,
+        "hostname": socket.gethostname(), "result": result_payload,
     }).encode()
-    req = urllib.request.Request(f"{server}/api/agent/heartbeat", data=body,
-                                headers={"Content-Type": "application/json"}, method="POST")
+    req = urllib.request.Request(
+        f"{server}/api/agent/heartbeat", data=body,
+        headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read())
 
 
 def main():
-    global pending_result, bg_thread
+    global pending_result
     p = argparse.ArgumentParser()
     p.add_argument("--server", default=os.environ.get("ABS_SERVER", "http://localhost:80"))
-    p.add_argument("--agent-id", default=os.environ.get("AGENT_ID", "agent-1"))
+    p.add_argument("--agent-id", default=os.environ.get("AGENT_ID", "abs-agent-1"))
     p.add_argument("--incoming-path", default=os.environ.get("INCOMING_PATH", "/incoming"))
     args = p.parse_args()
 
-    print(f"[agent] v{AGENT_VERSION} id={args.agent_id} server={args.server}")
+    log(f"[agent] v{AGENT_VERSION} id={args.agent_id} server={args.server}")
 
     while True:
         result_payload = None
@@ -140,27 +191,29 @@ def main():
                 result_payload = pending_result
                 pending_result = None
 
-        # Prepend any buffered results
-        buffered = flush_buffer()
+        # Flush buffered results
+        buffered = load_buffer()
         if buffered:
-            result_payload = buffered if not result_payload else buffered + [result_payload]
+            save_buffer([])
+            if result_payload:
+                buffered.append(result_payload)
+            result_payload = buffered[0] if len(buffered) == 1 else buffered
 
         try:
             resp = heartbeat(args.server, args.agent_id, result_payload)
             task = resp.get("task")
             if task:
-                print(f"[agent] Got task: {task['type']}")
-                if task["type"] == "scan_incoming":
-                    task.setdefault("params", {}).setdefault("path", args.incoming_path)
-                    bg_thread = threading.Thread(target=run_task, args=(task,), daemon=True)
-                    bg_thread.start()
+                log(f"[task] {task['type']} ({task.get('id', '?')})")
+                task.setdefault("params", {}).setdefault("path", args.incoming_path)
+                if task["type"] in BG_TASKS:
+                    threading.Thread(target=run_task, args=(task,), daemon=True).start()
                 else:
                     run_task(task)
         except Exception as e:
-            print(f"[agent] Server unreachable: {e}")
+            log(f"[offline] {e}")
             if result_payload:
                 buf = load_buffer()
-                buf.append(result_payload) if not isinstance(result_payload, list) else buf.extend(result_payload)
+                (buf.extend(result_payload) if isinstance(result_payload, list) else buf.append(result_payload))
                 save_buffer(buf)
 
         time.sleep(POLL_INTERVAL)

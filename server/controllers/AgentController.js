@@ -1,17 +1,21 @@
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
+const SocketAuthority = require('../SocketAuthority')
+const Database = require('../Database')
 const IncomingManager = require('../managers/IncomingManager')
 const QualityManager = require('../managers/QualityManager')
-const RecommendationManager = require('../managers/RecommendationManager')
 
 /**
  * @typedef RequestUserObject
  * @property {import('../models/User')} user
- *
  * @typedef {Request & RequestUserObject} RequestWithUser
  */
 
-const VALID_TASK_TYPES = ['scan_incoming', 'identify_book', 'check_quality', 'move_file', 'download_metadata']
+// Native audiobookshelf tasks + CineCross-compatible tasks
+const VALID_TASK_TYPES = [
+  'scan_incoming', 'identify_book', 'check_quality', 'move_file', 'download_metadata',
+  'scan_incoming_audio', 'audio_quality', 'audio_identify'
+]
 
 class AgentController {
   constructor() {
@@ -21,9 +25,7 @@ class AgentController {
 
   /**
    * POST: /api/agent/heartbeat
-   *
-   * @param {RequestWithUser} req
-   * @param {Response} res
+   * Compatible with CineCross agent protocol
    */
   async heartbeat(req, res) {
     const { agentId, version, hostname, result } = req.body
@@ -31,9 +33,13 @@ class AgentController {
 
     this.agents.set(agentId, { lastSeen: Date.now(), version, hostname })
 
-    if (result) {
-      await this.processResult(result.type, result)
-      Logger.info(`[AgentController] Agent ${agentId} completed task ${result.taskId} (${result.type}): ${result.status}`)
+    if (result && result.type) {
+      try {
+        await this.processResult(result.type, result)
+        Logger.info(`[AgentController] Agent ${agentId} completed ${result.type}`)
+      } catch (err) {
+        Logger.error(`[AgentController] Error processing result: ${err.message}`)
+      }
     }
 
     const task = this.taskQueue.shift() || null
@@ -42,73 +48,101 @@ class AgentController {
 
   /**
    * POST: /api/agent/tasks
-   *
-   * @param {RequestWithUser} req
-   * @param {Response} res
    */
   async queueTask(req, res) {
     const { type, params, priority = 0 } = req.body
     if (!VALID_TASK_TYPES.includes(type)) {
-      return res.status(400).json({ error: `Invalid type. Must be one of: ${VALID_TASK_TYPES.join(', ')}` })
+      return res.status(400).json({ error: `Invalid type. Valid: ${VALID_TASK_TYPES.join(', ')}` })
     }
 
-    const task = { taskId: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, type, params, priority, createdAt: Date.now() }
+    const task = {
+      id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type,
+      params: params || {},
+      priority,
+      createdAt: Date.now()
+    }
+    // Insert sorted by priority (lower = higher priority)
     const idx = this.taskQueue.findIndex((t) => t.priority > priority)
     this.taskQueue.splice(idx === -1 ? this.taskQueue.length : idx, 0, task)
 
-    Logger.info(`[AgentController] Queued task ${task.taskId} (${type}) priority=${priority}`)
+    Logger.info(`[AgentController] Queued ${type} (${task.id}) priority=${priority}`)
+    SocketAuthority.emitter('agent_task_queued', task)
     res.json({ task })
   }
 
-  /**
-   * GET: /api/agent/tasks
-   *
-   * @param {RequestWithUser} req
-   * @param {Response} res
-   */
+  /** GET: /api/agent/tasks */
   async getTasks(req, res) {
     res.json({ tasks: this.taskQueue })
   }
 
-  /**
-   * GET: /api/agent/agents
-   *
-   * @param {RequestWithUser} req
-   * @param {Response} res
-   */
+  /** GET: /api/agent/agents */
   async getAgents(req, res) {
     const agents = []
     for (const [agentId, info] of this.agents) {
-      agents.push({ agentId, ...info })
+      agents.push({ agentId, ...info, online: (Date.now() - info.lastSeen) < 60000 })
     }
     res.json({ agents })
   }
 
   /**
-   * Process completed task result by routing to the appropriate manager
-   *
-   * @param {string} type
-   * @param {Object} result
+   * Process completed task results from any agent (native or CineCross)
    */
   async processResult(type, result) {
+    const data = result.data || result
     switch (type) {
       case 'scan_incoming':
-        await IncomingManager.handleScanResult(result.data)
+      case 'scan_incoming_audio': {
+        // Agent found audio files — create IncomingItem records
+        const files = data.files || []
+        for (const f of files) {
+          try {
+            await Database.incomingItemModel.create({
+              filePath: f.path,
+              fileName: f.filename,
+              fileSize: f.size,
+              fileFormat: f.filename.split('.').pop(),
+              parsedTitle: f.parsed?.title || '',
+              parsedAuthor: f.parsed?.author || '',
+              parsedSeries: f.parsed?.series || '',
+              parsedSequence: f.parsed?.sequence || '',
+              status: 'pending'
+            })
+          } catch (err) {
+            Logger.warn(`[AgentController] Failed to create incoming item for ${f.filename}: ${err.message}`)
+          }
+        }
+        SocketAuthority.emitter('incoming_scan_complete', { count: files.length })
+        Logger.info(`[AgentController] Scan result: ${files.length} audio files found`)
         break
+      }
+      case 'audio_identify': {
+        // Agent read embedded metadata — update the IncomingItem if we can match by path
+        if (data.path) {
+          const item = await Database.incomingItemModel.findOne({ where: { filePath: data.path } })
+          if (item) {
+            await item.update({
+              matchedTitle: data.title || data.album || item.matchedTitle,
+              matchedAuthor: data.artist || item.matchedAuthor,
+              matchProvider: 'embedded_metadata'
+            })
+          }
+        }
+        break
+      }
+      case 'audio_quality':
+      case 'check_quality': {
+        // Store quality data — emit to UI
+        SocketAuthority.emitter('quality_check_complete', data)
+        break
+      }
       case 'identify_book':
-        await IncomingManager.handleIdentifyResult(result.data)
-        break
-      case 'check_quality':
-        await QualityManager.handleQualityResult(result.data)
-        break
       case 'move_file':
-        await IncomingManager.handleMoveResult(result.data)
-        break
       case 'download_metadata':
-        await RecommendationManager.handleMetadataResult(result.data)
+        SocketAuthority.emitter('agent_task_complete', { type, data })
         break
       default:
-        Logger.warn(`[AgentController] Unknown task type: ${type}`)
+        Logger.warn(`[AgentController] Unknown result type: ${type}`)
     }
   }
 }
