@@ -40,6 +40,7 @@ const RecommendationController = require('../controllers/RecommendationControlle
 const IntelligenceController = require('../controllers/IntelligenceController')
 const AgentController = require('../controllers/AgentController')
 const ReviewController = require('../controllers/ReviewController')
+const LibriVoxController = require('../controllers/LibriVoxController')
 
 class ApiRouter {
   constructor(Server) {
@@ -378,6 +379,12 @@ class ApiRouter {
     this.router.post('/agent/tasks', AgentController.queueTask.bind(this))
     this.router.get('/agent/tasks', AgentController.getTasks.bind(this))
     this.router.get('/agent/agents', AgentController.getAgents.bind(this))
+
+    // LibriVox
+    this.router.get('/librivox/search', LibriVoxController.search.bind(this))
+    this.router.get('/librivox/browse', LibriVoxController.browse.bind(this))
+    this.router.get('/librivox/:id', LibriVoxController.getDetails.bind(this))
+    this.router.post('/librivox/:id/download', LibriVoxController.download.bind(this))
 
     //
     // Misc Routes

@@ -48,6 +48,8 @@ class ReviewManager {
       this.fetchGoodreads(isbn, title, author),
       this.fetchHardcoverRatings(isbn, title),
       this.fetchStorygraph(isbn, title, author),
+      this.fetchGoogleBooksRating(isbn, title, author),
+      this.fetchWikidataEnrichment(title, author),
     ]
 
     const results = await Promise.allSettled(fetchers)
@@ -229,6 +231,70 @@ class ReviewManager {
         ratingCount: 0,
         reviews: [],
         url: `https://app.thestorygraph.com/browse?search_term=${q}`
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Google Books — free API, has ratings and description
+   */
+  async fetchGoogleBooksRating(isbn, title, author) {
+    try {
+      const q = isbn ? `isbn:${isbn}` : `intitle:${encodeURIComponent(title)}+inauthor:${encodeURIComponent(author)}`
+      const { data } = await axios.get(`https://www.googleapis.com/books/v1/volumes?q=${q}`, { timeout: this.timeout })
+      const vol = data?.items?.[0]?.volumeInfo
+      if (!vol?.averageRating) return null
+      const desc = vol.description ? [vol.description.substring(0, 300)] : []
+      return {
+        source: 'Google Books',
+        rating: vol.averageRating,
+        ratingCount: vol.ratingsCount || 0,
+        reviews: desc,
+        url: vol.previewLink || `https://books.google.com/books?q=${q}`
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Wikidata — free SPARQL/API, enrichment metadata (genres, awards, etc.)
+   */
+  async fetchWikidataEnrichment(title, author) {
+    try {
+      const search = encodeURIComponent(`${title} ${author}`.trim())
+      const { data: searchData } = await axios.get(`https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${search}&language=en&type=item&limit=1&format=json`, { timeout: this.timeout })
+      const entityId = searchData?.search?.[0]?.id
+      if (!entityId) return null
+
+      const { data: entityData } = await axios.get(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${entityId}&props=claims|sitelinks&format=json`, { timeout: this.timeout })
+      const entity = entityData?.entities?.[entityId]
+      if (!entity) return null
+
+      const claims = entity.claims || {}
+      const getValues = (prop) => (claims[prop] || []).map((c) => c.mainsnak?.datavalue?.value).filter(Boolean)
+
+      const pubDates = getValues('P577').map((v) => v.time || v).slice(0, 1)
+      const genreIds = getValues('P136').map((v) => v.id || v)
+      const awardIds = getValues('P166').map((v) => v.id || v)
+      const langIds = getValues('P407').map((v) => v.id || v)
+
+      const wikiLink = entity.sitelinks?.enwiki ? `https://en.wikipedia.org/wiki/${encodeURIComponent(entity.sitelinks.enwiki.title)}` : `https://www.wikidata.org/wiki/${entityId}`
+
+      return {
+        source: 'Wikidata',
+        rating: 0,
+        ratingCount: 0,
+        reviews: [],
+        url: wikiLink,
+        enrichment: {
+          genres: genreIds,
+          awards: awardIds,
+          originalLanguage: langIds[0] || null,
+          publicationDate: pubDates[0] || null
+        }
       }
     } catch {
       return null
