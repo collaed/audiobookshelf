@@ -51,5 +51,23 @@ class RecommendationController {
     await RecommendationManager.rebuildProfile(req.user.id)
     res.sendStatus(200)
   }
+
+  /**
+   * PATCH: /api/recommendations/profile/preferences
+   * Body: { fluentLanguages, secondaryLanguages, includeEbooks, preferredFormat }
+   */
+  async updatePreferences(req, res) {
+    const Database = require('../Database')
+    const [profile] = await Database.listenerProfileModel.getOrCreateForUser(req.user.id)
+    const { fluentLanguages, secondaryLanguages, includeEbooks, preferredFormat } = req.body
+
+    if (fluentLanguages !== undefined) profile.fluentLanguages = fluentLanguages
+    if (secondaryLanguages !== undefined) profile.secondaryLanguages = secondaryLanguages
+    if (includeEbooks !== undefined) profile.includeEbooks = includeEbooks
+    if (preferredFormat !== undefined) profile.preferredFormat = preferredFormat
+
+    await profile.save()
+    res.json({ profile })
+  }
 }
 module.exports = new RecommendationController()

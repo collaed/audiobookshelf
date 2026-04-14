@@ -358,6 +358,7 @@ class ApiRouter {
     //
     this.router.get('/recommendations/profile', RecommendationController.getProfile.bind(this))
     this.router.post('/recommendations/profile/rebuild', RecommendationController.rebuildProfile.bind(this))
+    this.router.patch('/recommendations/profile/preferences', RecommendationController.updatePreferences.bind(this))
     this.router.get('/recommendations/:category', RecommendationController.getRecommendations.bind(this))
 
     //

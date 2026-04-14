@@ -116,6 +116,18 @@ class RecommendationManager {
     const profile = await this.buildProfile(userId)
     if (!profile) return { category, items: [] }
 
+    // Load language & format preferences
+    const [listenerProfile] = await Database.listenerProfileModel.getOrCreateForUser(userId)
+    const fluentLangs = listenerProfile.fluentLanguages || []
+    const secondaryLangs = listenerProfile.secondaryLanguages || []
+    const allLangs = [...fluentLangs, ...secondaryLangs]
+    const includeEbooks = listenerProfile.includeEbooks !== false
+    const preferredFormat = listenerProfile.preferredFormat || 'all'
+
+    profile.languages = allLangs
+    profile.includeEbooks = includeEbooks
+    profile.preferredFormat = preferredFormat
+
     const readBookIds = [...profile.readBookIds]
 
     const categoryMap = {
@@ -211,14 +223,36 @@ class RecommendationManager {
       description: b.description,
       genres: b.genres || [],
       narrators: b.narrators || [],
+      language: b.language,
       duration: b.duration,
+      hasAudio: !!b.audioFiles?.length,
+      hasEbook: !!b.ebookFile,
       authorNames: b.authors ? b.authors.map((a) => a.name) : [],
       coverPath: b.coverPath
     }))
   }
 
+  /**
+   * Filter books by profile language and format preferences
+   */
+  filterByPreferences(books, profile) {
+    return books.filter((b) => {
+      // Language filter: if languages set, book must match (or have no language set)
+      if (profile.languages?.length && b.language) {
+        const bookLang = b.language.toLowerCase()
+        const matches = profile.languages.some((l) => bookLang.includes(l.toLowerCase()) || l.toLowerCase().includes(bookLang))
+        if (!matches) return false
+      }
+      // Format filter
+      if (profile.preferredFormat === 'audiobook' && !b.hasAudio) return false
+      if (profile.preferredFormat === 'ebook' && !b.hasEbook) return false
+      if (!profile.includeEbooks && !b.hasAudio) return false
+      return true
+    })
+  }
+
   async getDnaMatch(profile, readBookIds) {
-    const books = await this.getUnreadBooks(readBookIds)
+    const books = this.filterByPreferences(await this.getUnreadBooks(readBookIds), profile)
     return books
       .map((b) => ({ ...b, score: this.scoreBook(b, profile) }))
       .filter((b) => b.score > 0)
@@ -258,7 +292,7 @@ class RecommendationManager {
 
   async getNarratorsYouLove(profile, readBookIds) {
     if (!profile.topNarrators.length) return []
-    const books = await this.getUnreadBooks(readBookIds)
+    const books = this.filterByPreferences(await this.getUnreadBooks(readBookIds), profile)
     const topSet = new Set(profile.topNarrators)
 
     return books
@@ -309,7 +343,7 @@ class RecommendationManager {
   }
 
   async getHiddenGems(profile, readBookIds) {
-    const books = await this.getUnreadBooks(readBookIds)
+    const books = this.filterByPreferences(await this.getUnreadBooks(readBookIds), profile)
     if (!books.length) return []
 
     // Get completion stats for all books

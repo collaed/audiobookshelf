@@ -22,6 +22,14 @@ class ListenerProfile extends Model {
     this.totalListeningTime
     /** @type {number} */
     this.booksFinished
+    /** @type {Array<string>} */
+    this.fluentLanguages
+    /** @type {Array<string>} */
+    this.secondaryLanguages
+    /** @type {boolean} */
+    this.includeEbooks
+    /** @type {string} */
+    this.preferredFormat
     /** @type {Date} */
     this.lastCalculatedAt
     /** @type {Date} */
@@ -50,6 +58,10 @@ class ListenerProfile extends Model {
         avgBookLength: DataTypes.FLOAT,
         totalListeningTime: { type: DataTypes.FLOAT, defaultValue: 0 },
         booksFinished: { type: DataTypes.INTEGER, defaultValue: 0 },
+        fluentLanguages: { type: DataTypes.JSON, defaultValue: '[]' },
+        secondaryLanguages: { type: DataTypes.JSON, defaultValue: '[]' },
+        includeEbooks: { type: DataTypes.BOOLEAN, defaultValue: true },
+        preferredFormat: { type: DataTypes.STRING, defaultValue: 'all' },
         lastCalculatedAt: DataTypes.DATE
       },
       {
