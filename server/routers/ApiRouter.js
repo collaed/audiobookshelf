@@ -43,6 +43,7 @@ const ReviewController = require('../controllers/ReviewController')
 const LibriVoxController = require('../controllers/LibriVoxController')
 const DeliveryController = require('../controllers/DeliveryController')
 const LibraryToolsController = require('../controllers/LibraryToolsController')
+const SyncController = require('../controllers/SyncController')
 
 class ApiRouter {
   constructor(Server) {
@@ -407,6 +408,12 @@ class ApiRouter {
     this.router.post('/tools/convert-all', LibraryToolsController.convertForAll.bind(this))
     this.router.get('/tools/conversion-check', LibraryToolsController.conversionCheck.bind(this))
     this.router.post('/tools/extract-metadata', LibraryToolsController.extractMetadata.bind(this))
+
+    // Sync (audiobook ↔ ebook matching)
+    this.router.get('/sync/check', SyncController.check.bind(this))
+    this.router.get('/sync/pairs', SyncController.detectPairs.bind(this))
+    this.router.post('/sync/verify', SyncController.verifyPair.bind(this))
+    this.router.post('/sync/chapters', SyncController.generateSync.bind(this))
 
     //
     // Misc Routes
