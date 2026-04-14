@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /agent
-COPY agent-wrapper.py agent.py ./
-ENTRYPOINT ["python3", "agent-wrapper.py"]
+COPY abs-wrapper.py abs-agent.py ./
+ENTRYPOINT ["python3", "abs-wrapper.py"]
 CMD ["--server", "http://audiobookshelf:80"]

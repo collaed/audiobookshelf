@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import subprocess, sys, os, time
 
-AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent.py")
+AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "abs-agent.py")
 ARGS = sys.argv[1:]
 
 while True:
