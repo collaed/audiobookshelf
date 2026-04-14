@@ -13,7 +13,7 @@ const QualityManager = require('../managers/QualityManager')
 
 const VALID_TASK_TYPES = [
   'scan_incoming', 'identify_book', 'check_quality', 'move_file', 'download_metadata',
-  'scan_incoming_audio', 'audio_quality', 'audio_identify', 'audio_clean'
+  'scan_incoming_audio', 'audio_quality', 'audio_identify', 'audio_clean', 'audio_diagnose'
 ]
 
 class AgentController {

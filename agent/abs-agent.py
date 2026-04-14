@@ -300,6 +300,162 @@ def task_download_metadata(params, config):
         return {"error": str(e)}
 
 
+def task_audio_diagnose(params, config):
+    """Sample an audiobook file and suggest cleaning profile.
+
+    Takes 3 short samples (start, middle, end), analyzes noise floor,
+    dynamic range, and frequency content to recommend light/moderate/heavy.
+
+    Params:
+      path: source file (server path)
+      sample_duration: seconds per sample (default: 10)
+    """
+    p = params.get("path", "")
+    mp = map_path(p, config)
+    if not os.path.isfile(mp):
+        return {"error": "file not found", "path": p}
+
+    sample_dur = params.get("sample_duration", 10)
+
+    # Get total duration
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", mp],
+            capture_output=True, text=True, timeout=15)
+        total_dur = float(json.loads(probe.stdout).get("format", {}).get("duration", 0))
+    except:
+        return {"error": "cannot read file duration", "path": p}
+
+    if total_dur < 5:
+        return {"error": "file too short", "path": p}
+
+    # Sample 3 points: 10% in, 50%, 90%
+    offsets = [max(0, total_dur * f) for f in (0.1, 0.5, 0.9)]
+    tmp = os.path.join(os.environ.get("TEMP", "/tmp"), "abs_diag")
+    os.makedirs(tmp, exist_ok=True)
+
+    noise_floors = []
+    dynamic_ranges = []
+    high_freq_energies = []
+
+    for i, offset in enumerate(offsets):
+        wav = os.path.join(tmp, f"sample_{i}.wav")
+        stats_file = os.path.join(tmp, f"stats_{i}.txt")
+        try:
+            # Extract sample as wav
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", str(offset), "-i", mp,
+                 "-t", str(sample_dur), "-ac", "1", "-ar", "16000", wav],
+                capture_output=True, timeout=30)
+
+            if not os.path.isfile(wav):
+                continue
+
+            # Measure noise floor & dynamic range via astats
+            r = subprocess.run(
+                ["ffmpeg", "-i", wav, "-af", "astats=metadata=1:reset=1,ametadata=print:file=" + stats_file,
+                 "-f", "null", "-"],
+                capture_output=True, text=True, timeout=30)
+
+            # Parse stats
+            rms_vals = []
+            peak_vals = []
+            if os.path.exists(stats_file):
+                for line in open(stats_file):
+                    if "RMS_level" in line:
+                        try: rms_vals.append(float(line.split("=")[-1]))
+                        except: pass
+                    elif "Peak_level" in line:
+                        try: peak_vals.append(float(line.split("=")[-1]))
+                        except: pass
+
+            if rms_vals:
+                # Noise floor: quietest RMS frames (bottom 20%)
+                sorted_rms = sorted(rms_vals)
+                quiet_count = max(1, len(sorted_rms) // 5)
+                noise_floor = sum(sorted_rms[:quiet_count]) / quiet_count
+                noise_floors.append(noise_floor)
+
+                # Dynamic range: difference between loud and quiet
+                loud_count = max(1, len(sorted_rms) // 5)
+                loud_avg = sum(sorted_rms[-loud_count:]) / loud_count
+                dynamic_ranges.append(loud_avg - noise_floor)
+
+            # Measure high-frequency energy (hiss indicator)
+            # Extract energy above 6kHz vs total
+            r2 = subprocess.run(
+                ["ffmpeg", "-i", wav, "-af",
+                 "highpass=f=6000,astats=metadata=1:reset=0,ametadata=print",
+                 "-f", "null", "-"],
+                capture_output=True, text=True, timeout=30)
+            hf_rms = []
+            for line in r2.stderr.split("\n") + r2.stdout.split("\n"):
+                if "RMS_level" in line:
+                    try: hf_rms.append(float(line.split("=")[-1].strip()))
+                    except: pass
+            if hf_rms:
+                high_freq_energies.append(sum(hf_rms) / len(hf_rms))
+
+        except Exception as e:
+            log(f"[diagnose] Sample {i} error: {e}")
+        finally:
+            for f in [wav, stats_file]:
+                try: os.remove(f)
+                except: pass
+
+    try: shutil.rmtree(tmp, ignore_errors=True)
+    except: pass
+
+    if not noise_floors:
+        return {"error": "could not analyze audio", "path": p}
+
+    avg_noise = sum(noise_floors) / len(noise_floors)
+    avg_dynamic = sum(dynamic_ranges) / len(dynamic_ranges) if dynamic_ranges else 0
+    avg_hf = sum(high_freq_energies) / len(high_freq_energies) if high_freq_energies else -80
+
+    # Score: higher = dirtier
+    # Noise floor: -60dB is clean, -30dB is very noisy
+    noise_score = max(0, min(100, (avg_noise + 60) * 3.3))  # -60→0, -30→100
+    # High freq energy: -70dB is clean, -40dB is hissy
+    hiss_score = max(0, min(100, (avg_hf + 70) * 3.3))  # -70→0, -40→100
+    # Dynamic range: 30dB is good, 10dB is compressed/noisy
+    dynamic_score = max(0, min(100, (30 - avg_dynamic) * 5))  # 30→0, 10→100
+
+    overall = noise_score * 0.4 + hiss_score * 0.35 + dynamic_score * 0.25
+
+    if overall < 25:
+        recommendation = "none"
+        reason = "Audio is clean, no processing needed"
+    elif overall < 50:
+        recommendation = "light"
+        reason = "Mild background noise or slight hiss detected"
+    elif overall < 75:
+        recommendation = "moderate"
+        reason = "Noticeable noise/hiss and uneven dynamics"
+    else:
+        recommendation = "heavy"
+        reason = "Significant noise, hiss, and poor dynamic range — old recording"
+
+    log(f"[diagnose] {os.path.basename(mp)}: noise={avg_noise:.1f}dB hf={avg_hf:.1f}dB dyn={avg_dynamic:.1f}dB → {recommendation} ({overall:.0f}/100)")
+
+    return {
+        "path": p,
+        "recommendation": recommendation,
+        "reason": reason,
+        "score": round(overall, 1),
+        "details": {
+            "noise_floor_dB": round(avg_noise, 1),
+            "high_freq_energy_dB": round(avg_hf, 1),
+            "dynamic_range_dB": round(avg_dynamic, 1),
+            "noise_score": round(noise_score, 1),
+            "hiss_score": round(hiss_score, 1),
+            "dynamic_score": round(dynamic_score, 1),
+        },
+        "samples_analyzed": len(noise_floors),
+        "total_duration": round(total_dur, 1),
+    }
+
+
 def task_audio_clean(params, config):
     """Clean/restore old audiobook audio using ffmpeg filters.
 
@@ -487,6 +643,7 @@ TASK_HANDLERS = {
     "check_quality": task_audio_quality,
     "audio_identify": task_audio_identify,
     "identify_book": task_audio_identify,
+    "audio_diagnose": task_audio_diagnose,
     "audio_clean": task_audio_clean,
     "move_file": task_move_file,
     "download_metadata": task_download_metadata,
@@ -494,7 +651,7 @@ TASK_HANDLERS = {
     "update_agent": task_update_agent,
 }
 
-BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata", "audio_clean"}
+BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata", "audio_clean", "audio_diagnose"}
 
 
 def run_task(ttype, params, config):
