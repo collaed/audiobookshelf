@@ -456,6 +456,81 @@ def task_audio_diagnose(params, config):
     }
 
 
+def task_audio_auto_clean(params, config):
+    """One-click: diagnose then clean with the recommended profile.
+
+    Params:
+      path: source file (server path)
+      keep_original: true|false (default: true)
+      output_format: mp3|m4b|flac|same (default: same)
+      min_score: minimum score to trigger cleaning (default: 20)
+    """
+    p = params.get("path", "")
+    min_score = params.get("min_score", 20)
+
+    log(f"[auto-clean] Diagnosing {os.path.basename(p)}...")
+    diag = task_audio_diagnose({"path": p}, config)
+    if diag.get("error"):
+        return diag
+
+    score = diag.get("score", 0)
+    rec = diag.get("recommendation", "none")
+
+    if rec == "none" or score < min_score:
+        log(f"[auto-clean] Score {score:.0f} — clean enough, skipping")
+        return {"path": p, "action": "skipped", "score": score, "reason": diag.get("reason")}
+
+    log(f"[auto-clean] Score {score:.0f} → applying '{rec}' profile")
+    clean_params = {
+        "path": p,
+        "profile": rec,
+        "keep_original": params.get("keep_original", True),
+        "output_format": params.get("output_format", "same"),
+    }
+    result = task_audio_clean(clean_params, config)
+    result["diagnosis"] = diag
+    result["action"] = "cleaned"
+    return result
+
+
+def task_audio_auto_clean_folder(params, config):
+    """One-click: diagnose and clean all audio files in a folder.
+
+    Params:
+      path: folder (server path)
+      keep_original: true|false (default: true)
+      output_format: same (default)
+      min_score: minimum score to trigger cleaning (default: 20)
+    """
+    folder = params.get("path", "")
+    mp = map_path(folder, config)
+    if not os.path.isdir(mp):
+        return {"error": "folder not found", "path": folder}
+
+    files = []
+    for root, _, names in os.walk(mp):
+        for n in names:
+            if os.path.splitext(n)[1].lower() in AUDIO_EXTS:
+                files.append(unmap_path(os.path.join(root, n), config))
+
+    log(f"[auto-clean-folder] Found {len(files)} audio files in {folder}")
+    results = []
+    for f in files:
+        r = task_audio_auto_clean({
+            "path": f,
+            "keep_original": params.get("keep_original", True),
+            "output_format": params.get("output_format", "same"),
+            "min_score": params.get("min_score", 20),
+        }, config)
+        results.append(r)
+
+    cleaned = sum(1 for r in results if r.get("action") == "cleaned")
+    skipped = sum(1 for r in results if r.get("action") == "skipped")
+    errors = sum(1 for r in results if r.get("error"))
+    log(f"[auto-clean-folder] Done: {cleaned} cleaned, {skipped} skipped, {errors} errors")
+    return {"path": folder, "total": len(files), "cleaned": cleaned, "skipped": skipped, "errors": errors, "files": results}
+
+
 def task_audio_clean(params, config):
     """Clean/restore old audiobook audio using ffmpeg filters.
 
@@ -644,6 +719,8 @@ TASK_HANDLERS = {
     "audio_identify": task_audio_identify,
     "identify_book": task_audio_identify,
     "audio_diagnose": task_audio_diagnose,
+    "audio_auto_clean": task_audio_auto_clean,
+    "audio_auto_clean_folder": task_audio_auto_clean_folder,
     "audio_clean": task_audio_clean,
     "move_file": task_move_file,
     "download_metadata": task_download_metadata,
@@ -651,7 +728,7 @@ TASK_HANDLERS = {
     "update_agent": task_update_agent,
 }
 
-BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata", "audio_clean", "audio_diagnose"}
+BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata", "audio_clean", "audio_diagnose", "audio_auto_clean", "audio_auto_clean_folder"}
 
 
 def run_task(ttype, params, config):
