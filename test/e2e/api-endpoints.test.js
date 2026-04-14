@@ -9,14 +9,12 @@ test.describe('API Endpoints', () => {
     expect(resp.ok()).toBeTruthy()
   })
 
-  // Agent endpoints
-  test('POST /api/agent/heartbeat accepts heartbeat', async ({ request }) => {
+  // Agent endpoints (require auth — 401 is expected without token)
+  test('POST /api/agent/heartbeat requires auth', async ({ request }) => {
     const resp = await request.post(`${BASE_URL}/api/agent/heartbeat`, {
       data: { agentId: 'test-agent', version: '1.0', hostname: 'test' }
     })
-    expect(resp.ok()).toBeTruthy()
-    const body = await resp.json()
-    expect(body).toHaveProperty('task')
+    expect(resp.status()).toBe(401)
   })
 
   test('GET /api/agent/tasks returns task list', async ({ request }) => {
