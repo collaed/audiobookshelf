@@ -41,6 +41,7 @@ const IntelligenceController = require('../controllers/IntelligenceController')
 const AgentController = require('../controllers/AgentController')
 const ReviewController = require('../controllers/ReviewController')
 const LibriVoxController = require('../controllers/LibriVoxController')
+const DeliveryController = require('../controllers/DeliveryController')
 
 class ApiRouter {
   constructor(Server) {
@@ -135,6 +136,11 @@ class ApiRouter {
 
     // Reviews
     this.router.get('/items/:id/reviews', LibraryItemController.middleware.bind(this), ReviewController.getReviews.bind(this))
+
+    // Delivery
+    this.router.post('/items/:id/send-to-kindle', LibraryItemController.middleware.bind(this), DeliveryController.sendToKindle.bind(this))
+    this.router.post('/items/:id/send-to-device', LibraryItemController.middleware.bind(this), DeliveryController.sendToDevice.bind(this))
+    this.router.get('/items/:id/mobile-links', LibraryItemController.middleware.bind(this), DeliveryController.getMobileLinks.bind(this))
 
     //
     // User Routes
@@ -386,6 +392,11 @@ class ApiRouter {
     this.router.get('/librivox/browse', LibriVoxController.browse.bind(this))
     this.router.get('/librivox/:id', LibriVoxController.getDetails.bind(this))
     this.router.post('/librivox/:id/download', LibriVoxController.download.bind(this))
+
+    // OPDS
+    this.router.get('/opds', DeliveryController.opdsRoot.bind(this))
+    this.router.get('/opds/library/:id', DeliveryController.opdsLibrary.bind(this))
+    this.router.get('/opds/search', DeliveryController.opdsSearch.bind(this))
 
     //
     // Misc Routes
