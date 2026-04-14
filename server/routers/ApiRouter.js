@@ -44,6 +44,7 @@ const LibriVoxController = require('../controllers/LibriVoxController')
 const DeliveryController = require('../controllers/DeliveryController')
 const LibraryToolsController = require('../controllers/LibraryToolsController')
 const SyncController = require('../controllers/SyncController')
+const LanguageLearningController = require('../controllers/LanguageLearningController')
 
 class ApiRouter {
   constructor(Server) {
@@ -414,6 +415,11 @@ class ApiRouter {
     this.router.get('/sync/pairs', SyncController.detectPairs.bind(this))
     this.router.post('/sync/verify', SyncController.verifyPair.bind(this))
     this.router.post('/sync/chapters', SyncController.generateSync.bind(this))
+
+    // Language Learning
+    this.router.post('/language/interleave-text', LanguageLearningController.interleaveText.bind(this))
+    this.router.post('/language/interleave-audio', LanguageLearningController.interleaveAudio.bind(this))
+    this.router.post('/language/align', LanguageLearningController.previewAlignment.bind(this))
 
     //
     // Misc Routes
