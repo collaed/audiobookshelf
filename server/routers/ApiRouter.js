@@ -42,6 +42,7 @@ const AgentController = require('../controllers/AgentController')
 const ReviewController = require('../controllers/ReviewController')
 const LibriVoxController = require('../controllers/LibriVoxController')
 const DeliveryController = require('../controllers/DeliveryController')
+const LibraryToolsController = require('../controllers/LibraryToolsController')
 
 class ApiRouter {
   constructor(Server) {
@@ -397,6 +398,15 @@ class ApiRouter {
     this.router.get('/opds', DeliveryController.opdsRoot.bind(this))
     this.router.get('/opds/library/:id', DeliveryController.opdsLibrary.bind(this))
     this.router.get('/opds/search', DeliveryController.opdsSearch.bind(this))
+
+    // Library Tools (grouping, dedup, conversion)
+    this.router.get('/tools/groups', LibraryToolsController.detectGroups.bind(this))
+    this.router.post('/tools/groups/:key/merge', LibraryToolsController.mergeGroup.bind(this))
+    this.router.get('/tools/duplicates', LibraryToolsController.detectDuplicates.bind(this))
+    this.router.post('/tools/convert', LibraryToolsController.convertFormat.bind(this))
+    this.router.post('/tools/convert-all', LibraryToolsController.convertForAll.bind(this))
+    this.router.get('/tools/conversion-check', LibraryToolsController.conversionCheck.bind(this))
+    this.router.post('/tools/extract-metadata', LibraryToolsController.extractMetadata.bind(this))
 
     //
     // Misc Routes
