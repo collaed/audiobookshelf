@@ -1,239 +1,615 @@
-# Architectural Design — Audiobookshelf Extended
+# Architectural Design — Audiobookshelf Extended (Deep-Dive)
 
 ## 1. System Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Docker Host                                │
-│                                                                    │
-│  ┌─────────────────────────────────┐  ┌─────────────────────────┐ │
-│  │  Audiobookshelf (Node.js)       │  │  L'Intello (Python)     │ │
-│  │                                 │  │  - 24 LLM providers     │ │
-│  │  Express + Sequelize + SQLite   │  │  - OCR (Tesseract)      │ │
-│  │  Socket.io for real-time        │  │  - OpenAI-compatible API│ │
-│  │                                 │  └─────────────────────────┘ │
-│  │  ┌───────────┐ ┌─────────────┐ │                               │
-│  │  │ Upstream   │ │ Extended    │ │  ┌─────────────────────────┐ │
-│  │  │ (96K lines)│ │ (6.4K lines)│ │  │  Agent (Python)         │ │
-│  │  │ unchanged  │ │ 21 managers │ │  │  - File scanning        │ │
-│  │  │            │ │ 19 controllers│  │  - Audio cleaning       │ │
-│  │  │            │ │ 2 providers │ │  │  - Quality analysis     │ │
-│  │  │            │ │ 2 models    │ │  │  - Duplicate detection  │ │
-│  │  └───────────┘ └─────────────┘ │  └─────────────────────────┘ │
-│  │                                 │                               │
-│  │  ┌───────────┐ ┌─────────────┐ │  Volumes:                     │
-│  │  │ Client v2  │ │ Client v3   │ │  /audiobooks (persistent)    │
-│  │  │ (Nuxt 2)   │ │ (Nuxt 3)    │ │  /config (SQLite DB)        │
-│  │  │ at /       │ │ at /v3/     │ │  /metadata (covers, cache)   │
-│  │  └───────────┘ └─────────────┘ │  /incoming (drop zone)        │
-│  └─────────────────────────────────┘                               │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                           Docker Host                                │
+│  ┌──────────────────────────────┐  ┌──────────────────────────────┐  │
+│  │  Audiobookshelf (Node.js)    │  │  L'Intello (Python/FastAPI)  │  │
+│  │  Port 80 (mapped 13378)      │  │  Port 8000                   │  │
+│  │                              │  │  - 24 LLM providers          │  │
+│  │  ┌────────┐  ┌────────────┐  │  │  - OCR (Tesseract/OCRmyPDF) │  │
+│  │  │Upstream│  │ Extended   │  │  │  - OpenAI-compat /v1/chat    │  │
+│  │  │96K LOC │  │ 6.4K LOC   │  │  └──────────────────────────────┘  │
+│  │  │        │  │ 21 managers│  │                                     │
+│  │  │        │  │ 19 ctrls   │  │  ┌──────────────────────────────┐  │
+│  │  │        │  │ 2 providers│  │  │  Agent (Python)              │  │
+│  │  │        │  │ 2 models   │  │  │  - 15 task types             │  │
+│  │  └────────┘  └────────────┘  │  │  - Path mappings             │  │
+│  │                              │  │  - Offline buffering          │  │
+│  │  Client v2 (/) + v3 (/v3/)  │  │  - Background threads        │  │
+│  └──────────────────────────────┘  └──────────────────────────────┘  │
+│                                                                       │
+│  Volumes: /audiobooks /config /metadata /incoming (all persistent)    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. Design Principles
+## 2. Mermaid Sequence Diagrams
 
-### 2.1 Additive Architecture
-All new functionality lives in new files. Only 3 upstream files modified:
-- `Database.js`: +15 lines (register 2 models)
-- `Server.js`: +4 lines (init IncomingManager, serve /v3/)
-- `ApiRouter.js`: +155 lines (register routes)
+### 2.1 Incoming File Processing
 
-### 2.2 Singleton Manager Pattern
-Every manager is a class exported as a singleton instance:
-```js
-class SomeManager { ... }
-module.exports = new SomeManager()
-```
-Matches upstream ABS pattern. Managers are stateless or use in-memory caches.
+```mermaid
+sequenceDiagram
+    participant FS as Filesystem
+    participant IM as IncomingManager
+    participant MM as music-metadata
+    participant P as Providers (Audible/Google/OL)
+    participant DB as Database
+    participant WS as SocketAuthority
 
-### 2.3 Controller → Manager → Provider
-```
-HTTP Request → Controller (validation, auth) → Manager (business logic) → Provider (external API)
-                    ↓                                    ↓
-              asyncHandler                          try/catch → null
-              friendlyError                         Logger.error
-```
-
-### 2.4 Graceful Degradation
-Every optional dependency returns null/empty on failure:
-- LLM unavailable → AI endpoints return empty, non-AI features unaffected
-- Whisper missing → sync endpoints return error, everything else works
-- Calibre missing → conversion returns error
-- Agent offline → tasks queue but aren't picked up
-- External APIs down → individual sources return null, others still work
-
-## 3. Data Model Extensions
-
-### 3.1 IncomingItem (new table)
-```
-id, filePath, fileName, fileSize, fileFormat,
-parsedTitle, parsedAuthor, parsedSeries, parsedSequence,
-matchedTitle, matchedAuthor, matchedCover, matchedAsin, matchedIsbn,
-matchProvider, matchConfidence,
-status (pending|confirmed|rejected|duplicate),
-libraryId (FK → libraries)
+    FS->>IM: fs.watch detects new file
+    IM->>IM: Check extension in audioExtensions Set
+    IM->>IM: Check not in processing Set
+    IM->>IM: Add to processing Set
+    IM->>IM: parseFilename(filePath)
+    IM->>MM: parseFile(filePath, {skipCovers: true})
+    MM-->>IM: {title, artist, album, genre, duration, bitrate}
+    Note over IM: Override parsed with embedded if present
+    IM->>IM: fs.stat(filePath) for fileSize
+    IM->>DB: checkDuplicate(title, author) via bookModel
+    alt Duplicate found
+        IM->>DB: Create IncomingItem status='duplicate'
+    else No duplicate
+        IM->>P: identifyBook(parsed) - try Audible first
+        P-->>IM: {title, author, cover, asin, isbn, provider, confidence}
+        IM->>DB: Create IncomingItem status='pending'
+    end
+    IM->>WS: emitter('incoming_item_added', item)
+    IM->>IM: Remove from processing Set
 ```
 
-### 3.2 ListenerProfile (new table)
-```
-id, userId (FK → users, unique),
-favoriteGenres, favoriteAuthors, favoriteNarrators, themeKeywords (all JSON),
-avgBookLength, totalListeningTime, booksFinished,
-fluentLanguages, secondaryLanguages (JSON),
-includeEbooks (boolean), preferredFormat (string),
-lastCalculatedAt
+### 2.2 Recommendation Engine
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant RC as RecommendationController
+    participant RM as RecommendationManager
+    participant DB as Database
+    participant LP as ListenerProfile
+
+    U->>RC: GET /recommendations/all
+    RC->>RM: getRecommendations(userId, 'all')
+    RM->>RM: buildProfile(userId)
+    RM->>DB: mediaProgressModel.findAll({userId, isFinished:true})
+    RM->>DB: bookModel.findAll({id: bookIds}, include: authors)
+    RM->>RM: Tally genres, authors, narrators, themes
+    RM->>DB: listenerProfileModel.getOrCreateForUser(userId)
+    Note over RM: Load fluentLanguages, preferredFormat
+    RM->>RM: getUnreadBooks(readBookIds) limit:500
+    RM->>RM: filterByPreferences(books, profile)
+    par 5 categories
+        RM->>RM: getDnaMatch(profile, readBookIds)
+        RM->>RM: getAuthorsYouLove(profile, readBookIds)
+        RM->>RM: getNarratorsYouLove(profile, readBookIds)
+        RM->>RM: getCompleteSeries(userId)
+        RM->>RM: getHiddenGems(profile, readBookIds)
+    end
+    RM-->>RC: {category:'all', items:{dna,authors,narrators,series,gems}}
+    RC-->>U: JSON response
 ```
 
-## 4. Component Catalog
+### 2.3 Agent Task Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant S as Server (AgentController)
+    participant Q as better-queue
+    participant A as Agent (abs-agent.py)
+    participant H as TaskHandler
+    participant B as Buffer (JSON file)
+
+    Note over S: User queues task
+    S->>Q: queue.push({id, type, params, priority})
+    Q->>S: task_finish event → pendingTasks[]
+
+    loop Every 15 seconds
+        A->>S: POST /agent/heartbeat {agentId, version, hostname, result?}
+        alt Has pending result
+            S->>S: processResult(type, data)
+        end
+        S-->>A: {task: nextFromPendingTasks or null}
+        alt Task received
+            alt Background task (scan/clean)
+                A->>A: threading.Thread(target=run_task)
+                A->>H: Execute handler
+            else Foreground task
+                A->>H: Execute handler directly
+            end
+            H-->>A: result dict
+            Note over A: Store as pending_result
+        end
+        alt Server unreachable
+            A->>B: buffer_result(taskId, result)
+            Note over A: Exponential backoff
+        end
+        alt Reconnected
+            A->>B: flush_buffer()
+            A->>S: Send buffered results
+        end
+    end
+
+    Note over A: update_agent task → sys.exit(42)
+    Note over A: Wrapper detects exit 42 → restart
+```
+
+### 2.4 LLM Request Routing
+
+```mermaid
+sequenceDiagram
+    participant C as AiController
+    participant LP as LlmProvider
+    participant I as L'Intello
+    participant O as Ollama
+    participant OA as OpenAI
+
+    C->>LP: complete(systemPrompt, userPrompt, options)
+    LP->>LP: Check provider !== 'disabled'
+    LP->>LP: _getEndpoint() → {url, headers, model}
+
+    alt provider = 'airouter'
+        LP->>I: POST /v1/chat/completions {model:'auto', messages, prefer_free:true}
+        I->>I: Route to best available LLM (24 providers)
+        I-->>LP: {choices:[{message:{content}}]}
+    else provider = 'ollama'
+        LP->>O: POST /v1/chat/completions {model, messages}
+        O-->>LP: {choices:[{message:{content}}]}
+    else provider = 'openai'
+        LP->>OA: POST /v1/chat/completions {model, messages, max_tokens}
+        OA-->>LP: {choices:[{message:{content}}]}
+    end
+
+    LP-->>C: content string (or '' on error)
+```
+
+### 2.5 Ebook → Audiobook Pipeline
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant TC as TextToAudiobookController
+    participant TM as TextToAudiobookManager
+    participant SM as SyncManager
+    participant TTS as Piper/espeak
+    participant FF as ffmpeg
+
+    U->>TC: POST /items/:id/convert-to-audio {language:'en'}
+    TC->>TM: convert(bookId, {voice:'en'})
+    TM->>TM: Database.bookModel.findByPk(bookId)
+    TM->>SM: extractEbookText(ebookPath, 2000000)
+    SM-->>TM: fullText (up to 2M chars)
+    TM->>TM: _splitChapters(fullText)
+    Note over TM: Regex for Chapter/Part markers, fallback to 5000-char chunks
+
+    loop For each chapter
+        TM->>TTS: piper --model en_US-lessac-medium --output_file ch.wav (text on stdin)
+        TTS-->>TM: ch.wav
+        TM->>FF: ffmpeg -i ch.wav -codec:a libmp3lame -q:a 4 ch.mp3
+        FF-->>TM: ch.mp3
+        TM->>FF: ffprobe -show_entries format=duration ch.mp3
+        FF-->>TM: duration
+        TM->>TM: fs.remove(ch.wav)
+    end
+
+    TM-->>TC: {title, author, outputDir, chapters[], totalDuration}
+    TC-->>U: JSON response
+```
+
+### 2.6 Review Aggregation
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant RC as ReviewController
+    participant RM as ReviewManager
+    participant AN as Audnexus
+    participant OL as OpenLibrary
+    participant GR as Goodreads
+    participant GB as Google Books
+    participant HC as Hardcover
+    participant SG as StoryGraph
+    participant WD as Wikidata
+
+    U->>RC: GET /items/:id/reviews
+    RC->>RM: getReviews(bookId)
+    RM->>RM: Check cache (Map, 24h TTL)
+    alt Cache hit
+        RM-->>RC: cached data
+    else Cache miss
+        RM->>RM: Load book (title, author, asin, isbn)
+        par 7 parallel fetchers
+            RM->>AN: fetchAudnexusRating(asin)
+            RM->>OL: fetchOpenLibraryRatings(isbn, title, author)
+            RM->>GR: fetchGoodreads(isbn, title, author)
+            RM->>GB: fetchGoogleBooksRating(isbn, title, author)
+            RM->>HC: fetchHardcoverRatings(isbn, title)
+            RM->>SG: fetchStorygraph(isbn, title, author)
+            RM->>WD: fetchWikidataEnrichment(title, author)
+        end
+        Note over RM: Promise.allSettled → filter fulfilled, non-null
+        RM->>RM: Compute weighted average (rating × count per source)
+        RM->>RM: Cache result (24h)
+        RM-->>RC: {sources[], avgRating, totalRatings}
+    end
+    RC-->>U: JSON response
+```
+
+
+## 3. Type Definitions
+
+### 3.1 Database Models
+
+#### IncomingItem
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default UUIDV4 |
+| filePath | STRING | NOT NULL |
+| fileName | STRING | NOT NULL |
+| fileSize | BIGINT | |
+| fileFormat | STRING | |
+| parsedTitle | STRING | |
+| parsedAuthor | STRING | |
+| parsedSeries | STRING | |
+| parsedSequence | STRING | |
+| matchedTitle | STRING | |
+| matchedAuthor | STRING | |
+| matchedCover | STRING | |
+| matchedAsin | STRING | |
+| matchedIsbn | STRING | |
+| matchProvider | STRING | |
+| matchConfidence | FLOAT | |
+| status | STRING | NOT NULL, DEFAULT 'pending' |
+| libraryId | UUID | FK → libraries ON DELETE SET NULL |
+| createdAt | DATE | NOT NULL |
+| updatedAt | DATE | NOT NULL |
+
+#### ListenerProfile
+| Column | Type | Constraints |
+|--------|------|-------------|
+| id | UUID | PK, default UUIDV4 |
+| userId | UUID | NOT NULL, UNIQUE, FK → users ON DELETE CASCADE |
+| favoriteGenres | JSON | DEFAULT [] |
+| favoriteAuthors | JSON | DEFAULT [] |
+| favoriteNarrators | JSON | DEFAULT [] |
+| themeKeywords | JSON | DEFAULT [] |
+| avgBookLength | FLOAT | |
+| totalListeningTime | FLOAT | DEFAULT 0 |
+| booksFinished | INTEGER | DEFAULT 0 |
+| fluentLanguages | JSON | DEFAULT [] |
+| secondaryLanguages | JSON | DEFAULT [] |
+| includeEbooks | BOOLEAN | DEFAULT true |
+| preferredFormat | STRING | DEFAULT 'all' |
+| lastCalculatedAt | DATE | |
+
+### 3.2 API Response Contracts
+
+#### Agent Heartbeat
+```typescript
+// Request: POST /api/agent/heartbeat
+interface HeartbeatRequest {
+  agentId: string          // required
+  version: string
+  hostname: string
+  result?: {
+    taskId: string
+    type: string
+    data: Record<string, any>
+  }
+}
+// Response
+interface HeartbeatResponse {
+  task: { id: string, type: string, params: Record<string, any>, priority: number } | null
+}
+```
+
+#### Auto-Tag
+```typescript
+// Response: POST /api/items/:id/auto-tag
+interface AutoTagResponse {
+  genres: string[]           // 2-5
+  subgenres: string[]        // 2-4
+  mood: string[]             // 2-4
+  themes: string[]           // 3-6
+  pace: 'slow' | 'medium' | 'fast'
+  targetAudience: 'adult' | 'young-adult' | 'children'
+  contentWarnings: string[]
+  setting: string
+  similar: string[]          // 2-3 well-known books
+  oneLiner: string
+  _bookId: string
+  _title: string
+  _samplesUsed: number       // 5 (beginning + 3 middle + end)
+}
+```
+
+#### Book Summary
+```typescript
+// Response: POST /api/items/:id/summary
+interface BookSummaryResponse {
+  title: string
+  author: string
+  oneLiner: string
+  keyInsight: string
+  summary: string            // 3-5 paragraphs
+  keyPoints: string[]        // 5-10
+  actionItems: string[]      // 3-5 (non-fiction)
+  quotes: string[]           // 3-5
+  whoShouldRead: string
+  readingTime: string
+}
+```
+
+#### Reviews
+```typescript
+// Response: GET /api/items/:id/reviews
+interface ReviewsResponse {
+  sources: Array<{
+    source: string           // 'Audible' | 'OpenLibrary' | 'Goodreads' | 'Google Books' | 'Hardcover' | 'StoryGraph' | 'Wikidata'
+    rating: number           // 0-5
+    ratingCount: number
+    reviews: string[]
+    url: string
+    enrichment?: {           // Wikidata only
+      genres: string[]
+      awards: string[]
+      originalLanguage: string
+      publicationDate: string
+    }
+  }>
+  avgRating: number
+  totalRatings: number
+}
+```
+
+#### Quality Analysis
+```typescript
+interface QualityAnalysis {
+  score: number              // 0-100
+  bitrate: number            // avg kbps
+  hasChapters: boolean
+  format: string | null
+  channels: number
+  issues: string[]
+}
+```
+
+#### Name Normalizer
+```typescript
+interface ParsedName {
+  first: string
+  last: string
+  full: string
+  suffix?: string
+}
+// parseName(str) → ParsedName
+// normalizeName(str) → string (canonical lowercase)
+// namesMatch(a, b) → boolean
+// formatName(parsed, 'first-last'|'last-first'|'last-only'|'short') → string
+```
+
+#### LLM Status
+```typescript
+// Response: GET /api/ai/status
+interface LlmStatus {
+  available: boolean
+  provider: 'airouter' | 'ollama' | 'openai' | 'custom' | 'disabled'
+  reason?: string
+  config: {
+    airouter: { url: string, hasToken: boolean }
+    ollama: { url: string, model: string }
+    openai: { url: string, hasKey: boolean, model: string }
+    custom: { url: string, hasKey: boolean, model: string }
+  }
+}
+```
+
+### 3.3 Agent Task Contracts
+
+| Task | Params | Returns |
+|------|--------|---------|
+| scan_incoming | `{path, min_size?:1000000}` | `{files: [{path, filename, size, parsed: {author, title, series, sequence}}]}` |
+| audio_quality | `{paths[]}` | `{checked, data: {[path]: {duration, bitrate, format, codec, channels, has_chapters, chapter_count, size}}}` |
+| audio_identify | `{path}` | `{path, title, artist, album, genre, date, duration}` |
+| audio_diagnose | `{path, sample_duration?:10}` | `{path, recommendation, reason, score, details: {noise_floor_dB, high_freq_energy_dB, dynamic_range_dB}, samples_analyzed, total_duration}` |
+| audio_clean | `{path, profile, keep_original?:true, output_format?:'same'}` | `{path, profile, elapsed, old_size, new_size, kept_original}` |
+| audio_auto_clean | `{path, keep_original?:true, min_score?:20}` | `{path, action:'cleaned'\|'skipped', score, diagnosis?}` |
+| audio_auto_clean_folder | `{path, keep_original?:true, min_score?:20}` | `{path, total, cleaned, skipped, errors, files[]}` |
+| find_duplicates | `{path, recursive?:true, min_size?:100000}` | `{path, totalFiles, duplicateGroups, totalWastedBytes, groups: [{size, hash, count, files[], wastedBytes}]}` |
+| move_file | `{source, destination}` | `{moved:true, source, destination}` |
+| download_metadata | `{title}` | `{query, results: [{title, author, year, isbn, cover_id}]}` |
+| diag | `{paths?[]}` | `{platform, python, hostname, agent_version, path_mappings, paths, disk_free, ffprobe}` |
+| update_agent | `{code, path?}` | `{updated, size, _restart:true}` |
+
+
+## 4. Physical File → Component Mapping
 
 ### 4.1 Server Managers (21 new)
 
-| Manager | Purpose | External Deps |
-|---------|---------|---------------|
-| IncomingManager | Folder watcher, file processing | music-metadata, fs.watch |
-| RecommendationManager | Taste profiles, 5 recommendation categories | natural (TF-IDF, stopwords) |
-| QualityManager | Audio analysis, series gaps, narrator consistency | None |
-| ReviewManager | 7-source rating aggregation | axios (HTTP) |
-| SocialManager | Activity feed, taste comparison | None |
-| DeliveryManager | Kindle/OPDS/mobile delivery | xmlbuilder2 |
-| GroupingManager | Split chapter detection, dedup | string-similarity |
-| ConversionManager | Calibre ebook-convert wrapper | child_process |
-| SyncManager | Whisper STT, audiobook↔ebook matching | child_process (whisper, ffmpeg) |
-| LanguageLearningManager | Cross-language interleaving | sbd (sentence boundary) |
-| BookCompanionManager | AI recap, chat, character tracking | LlmProvider |
-| LlmProvider | Unified LLM client (4 backends) | axios |
-| AutoTagManager | Multi-sample LLM tagging | LlmProvider |
-| BookSummaryManager | Structured summaries + audio | LlmProvider, child_process (TTS) |
-| ModernizeManager | Archaic text modernization | LlmProvider |
-| TextToAudiobookManager | Ebook → audiobook via TTS | child_process (piper/espeak, ffmpeg) |
-| OcrManager | OCR client for L'Intello | axios |
-| LibriVoxManager | Free audiobook catalog | LibriVox provider |
-| GutenbergManager | Free ebook catalog | Gutenberg provider |
-| RatingImportManager | Goodreads/OpenLibrary import | axios |
-| ScheduledFeedManager | Drip-feed podcast scheduling | RssFeedManager (upstream) |
+| File | Dependencies | Purpose |
+|------|-------------|---------|
+| `server/managers/IncomingManager.js` | music-metadata, fs, providers, Database, SocketAuthority | Folder watcher, file processing, provider matching |
+| `server/managers/RecommendationManager.js` | natural, string-similarity, Database | Taste profiles, 5 recommendation categories, language/format filtering |
+| `server/managers/QualityManager.js` | Database | Audio quality scoring, series gaps, narrator consistency |
+| `server/managers/ReviewManager.js` | axios | 7-source rating aggregation with 24h cache |
+| `server/managers/SocialManager.js` | Database, SocketAuthority | Activity feed, taste comparison, collaborative filtering |
+| `server/managers/DeliveryManager.js` | xmlbuilder2, EmailManager | Kindle/Kobo/OPDS delivery, mobile links |
+| `server/managers/GroupingManager.js` | string-similarity, nameNormalizer | Split chapter detection, duplicate detection, file merging |
+| `server/managers/ConversionManager.js` | child_process | Calibre ebook-convert wrapper |
+| `server/managers/SyncManager.js` | string-similarity, natural, child_process | Whisper STT, audiobook↔ebook matching, chapter alignment |
+| `server/managers/LanguageLearningManager.js` | sbd, child_process | Cross-language text/audio interleaving |
+| `server/managers/BookCompanionManager.js` | LlmProvider, Database | AI recap, chat, character tracking, smart search |
+| `server/managers/LlmProvider.js` | axios | Unified LLM client (airouter/ollama/openai/custom/disabled) |
+| `server/managers/AutoTagManager.js` | LlmProvider, SyncManager | Multi-sample LLM tagging (5 text points) |
+| `server/managers/BookSummaryManager.js` | LlmProvider, child_process | Structured summaries + TTS audio |
+| `server/managers/ModernizeManager.js` | LlmProvider, SyncManager | Archaic text modernization (4 styles) |
+| `server/managers/TextToAudiobookManager.js` | child_process (piper/espeak, ffmpeg) | Ebook → audiobook via TTS |
+| `server/managers/OcrManager.js` | axios | OCR client for L'Intello |
+| `server/managers/LibriVoxManager.js` | LibriVox provider, htmlparser2, axios | Free audiobook catalog + download |
+| `server/managers/GutenbergManager.js` | Gutenberg provider, axios | Free ebook catalog + download |
+| `server/managers/RatingImportManager.js` | axios, Database | Goodreads CSV / OpenLibrary import |
+| `server/managers/ScheduledFeedManager.js` | Database, RssFeedManager | Drip-feed podcast scheduling |
 
-### 4.2 Agent Task Types (15)
+### 4.2 Server Controllers (19 new)
 
-| Task | Runs on | I/O |
-|------|---------|-----|
-| scan_incoming | Agent | Filesystem walk |
-| audio_quality | Agent | ffprobe |
-| audio_identify | Agent | ffprobe (metadata tags) |
-| audio_diagnose | Agent | ffmpeg (3-point sampling) |
-| audio_clean | Agent | ffmpeg (filter chain) |
-| audio_auto_clean | Agent | diagnose + clean |
-| audio_auto_clean_folder | Agent | Batch clean |
-| find_duplicates | Agent | Size grouping + MD5 head/tail |
-| move_file | Agent | shutil.move |
-| download_metadata | Agent | OpenLibrary API |
-| diag | Agent | System info |
-| update_agent | Agent | Self-update + exit 42 |
-| scan_incoming_audio | Agent | Alias for scan_incoming |
-| identify_book | Agent | Alias for audio_identify |
-| check_quality | Agent | Alias for audio_quality |
+| File | Manager(s) | Routes |
+|------|-----------|--------|
+| `AgentController.js` | better-queue | /agent/heartbeat, /tasks, /agents |
+| `AiController.js` | LlmProvider, BookCompanionManager | /ai/status, /config, /recap, /search, /ask, /character, /check-alignment, /chapter-summary |
+| `AutoTagController.js` | AutoTagManager | /items/:id/auto-tag, /auto-tag/apply, /libraries/:id/auto-tag |
+| `BookSummaryController.js` | BookSummaryManager | /items/:id/summary, /summary/audio, /summary/versions |
+| `DeliveryController.js` | DeliveryManager | /items/:id/send-to-kindle, /send-to-device, /mobile-links, /opds/* |
+| `GutenbergController.js` | GutenbergManager | /gutenberg/search, /browse, /:id, /:id/download |
+| `IncomingController.js` | IncomingManager, Database | /incoming, /pending, /:id/confirm, /:id/reject, /scan |
+| `IntelligenceController.js` | QualityManager, SocialManager, Database | /intelligence/library/:id/*, /stats, /space-savers, /activity, /compare, /community-recommendations |
+| `LanguageLearningController.js` | LanguageLearningManager | /language/interleave-text, /interleave-audio, /align |
+| `LibraryToolsController.js` | GroupingManager, ConversionManager | /tools/groups, /duplicates, /convert, /convert-all, /conversion-check, /extract-metadata |
+| `LibriVoxController.js` | LibriVoxManager | /librivox/search, /browse, /:id, /:id/download |
+| `ModernizeController.js` | ModernizeManager | /items/:id/modernize, /modernize/preview, /modernize/versions |
+| `OcrController.js` | OcrManager | /ocr/status, /items/:id/ocr, /items/:id/ocr/text |
+| `RatingImportController.js` | RatingImportManager | /ratings/import/goodreads, /openlibrary, /status |
+| `RecommendationController.js` | RecommendationManager, Database | /recommendations/:category, /profile, /profile/preferences, /profile/rebuild |
+| `ReviewController.js` | ReviewManager | /items/:id/reviews |
+| `ScheduledFeedController.js` | ScheduledFeedManager | /items/:id/podcast-feed, /feeds/:id/schedule |
+| `SyncController.js` | SyncManager | /sync/check, /pairs, /verify, /chapters |
+| `TextToAudiobookController.js` | TextToAudiobookManager | /items/:id/convert-to-audio, /convert-to-audio/status |
 
-### 4.3 OSS Libraries Integrated
+### 4.3 Other New Files
 
-| Library | Replaces | Used By |
-|---------|----------|---------|
-| string-similarity | Hand-rolled Jaccard | GroupingManager, SyncManager |
-| natural | Hand-rolled stopwords/TF-IDF | RecommendationManager, SyncManager |
-| sbd | Regex sentence splitting | LanguageLearningManager |
-| xmlbuilder2 | Manual XML concatenation | DeliveryManager (OPDS) |
-| music-metadata | Filename-only parsing | IncomingManager |
-| better-queue | Raw array task queue | AgentController |
+| File | Purpose |
+|------|---------|
+| `server/providers/LibriVox.js` | LibriVox API client (search, getById, getByAuthor, getRecent) |
+| `server/providers/Gutenberg.js` | Gutendex API client (search, getById, getPopular, getBySubject) |
+| `server/models/IncomingItem.js` | Sequelize model with getByStatus(), getPending() |
+| `server/models/ListenerProfile.js` | Sequelize model with getOrCreateForUser() |
+| `server/utils/asyncHandler.js` | asyncHandler (wraps 63 methods) + friendlyError (maps 15+ error patterns) |
+| `server/utils/nameNormalizer.js` | parseName, normalizeName, namesMatch, formatName |
+| `server/migrations/v2.34.0-*.js` | Creates incomingItems + listenerProfiles tables |
+| `server/migrations/v2.34.1-*.js` | Adds language/format columns to listenerProfiles |
+| `agent/abs-agent.py` | Python agent (15 task types, 988 lines) |
+| `agent/abs-wrapper.py` | Supervisor (exit 42=restart, non-zero=retry, 0=stop) |
+| `agent/Dockerfile.agent` | python:3.12-slim + ffmpeg |
+| `agent/setup-windows.ps1` | Windows deployment with scheduled task |
+| `scripts/setup-cloud-storage.sh` | rclone setup for 7+ cloud providers |
+| `scripts/migrate-vue.js` | Vue 2→3 migration analysis tool |
 
-## 5. API Surface
+### 4.4 Client v3 Pages
 
-Total routes: 230+ (170 upstream + 65 new)
+| File | API Endpoints Used | Purpose |
+|------|-------------------|---------|
+| `pages/index.vue` | /ai/status, /agent/agents, /intelligence/activity | Dashboard |
+| `pages/library.vue` | /libraries, /libraries/:id/items | Library with All/Audio/Ebook filter |
+| `pages/book/[id].vue` | /items/:id/reviews, /ai/recap, /ai/ask, /ai/character, /items/:id/auto-tag, /auto-tag/apply, /send-to-kindle, /send-to-device, /mobile-links, /items/:id/summary, /summary/audio, /modernize/preview, /modernize, /convert-to-audio, /convert-to-audio/status, /ocr, /podcast-feed | Book detail (8 tabs) |
+| `pages/incoming.vue` | /incoming/pending, /incoming/:id/confirm, /incoming/:id/reject, /incoming/scan | Pending items |
+| `pages/discover.vue` | /recommendations/all, /librivox/search, /librivox/:id/download, /items/:id/reviews | Recommendations + LibriVox + Reviews |
+| `pages/intelligence.vue` | /intelligence/library/:id/quality, /series-gaps, /narrator-consistency, /tools/duplicates, /intelligence/stats | Library intelligence |
+| `pages/language.vue` | /language/align, /language/interleave-text, /language/interleave-audio | Language learning |
+| `pages/settings.vue` | /ai/status, /ai/config, /ocr/status, /agent/agents, /tools/conversion-check, /sync/check | Configuration |
 
-New route groups:
-- `/api/incoming/*` (5 routes)
-- `/api/recommendations/*` (4 routes)
-- `/api/intelligence/*` (7 routes)
-- `/api/agent/*` (4 routes)
-- `/api/librivox/*` (4 routes)
-- `/api/gutenberg/*` (4 routes)
-- `/api/opds/*` (3 routes)
-- `/api/sync/*` (4 routes)
-- `/api/language/*` (3 routes)
-- `/api/ai/*` (9 routes)
-- `/api/tools/*` (7 routes)
-- `/api/ratings/*` (3 routes)
-- `/api/items/:id/*` (18 new sub-routes)
+## 5. Technical Debt Inventory
 
-## 6. Frontend Architecture
+### 5.1 Upstream TODOs (in controllers we didn't modify)
+| Location | Issue |
+|----------|-------|
+| CollectionController.js:261 | bookId is actually libraryItemId — clients need updating |
+| CustomMetadataProviderController.js:58,95 | Unnecessary emit to all clients? |
+| LibraryController.js:626 | Temporary collapse sub-series handling |
+| LibraryController.js:832 | Create paginated queries |
+| MeController.js:150,172,340 | Update to use mediaItemId and mediaItemType |
+| MiscController.js:654 | Better validation of auth settings |
+| PlaylistController.js:126 | Remove endpoint or make it primary |
+| PodcastController.js:487 | Watcher trigger on episode delete |
+| SeriesController.js:29 | Update mobile app to use different route |
+| SeriesController.js:65 | Check for duplicate series name |
+| constants.js:51 | Switch to audio/matroska mime type |
+| ffmpegHelpers.js:447 | Always-encode option for m4b merge |
 
-### 6.1 Dual Client
-- **Client v2** (Nuxt 2): Serves at `/` — all original ABS pages, unchanged
-- **Client v3** (Nuxt 3): Serves at `/v3/` — 8 new feature pages
+### 5.2 Our Technical Debt
+| Issue | Severity | Location |
+|-------|----------|----------|
+| Vue 3 client auth reads localStorage.token but blank page reported | High | client-v3/composables/useApi.ts |
+| 141 routes without per-route middleware (rely on global auth) | Medium | server/routers/ApiRouter.js |
+| IntelligenceController queries not paginated for large libraries | Medium | server/controllers/IntelligenceController.js |
+| Agent task queue in-memory (lost on restart) | Medium | server/controllers/AgentController.js |
+| better-queue uses memory store, not persistent | Low | server/controllers/AgentController.js |
+| ScheduledFeedManager pubDate update may not persist across feed regeneration | Low | server/managers/ScheduledFeedManager.js |
+| ModernizeManager processes chapters sequentially (slow for long books) | Low | server/managers/ModernizeManager.js |
 
-### 6.2 Vue 3 Migration
-- 238 total .vue files compiled in client-v3
-- 42 legacy pages + 184 components migrated from Vue 2
-- Options API preserved (works unchanged in Vue 3)
-- 9 plugins rewritten for Nuxt 3 (globalProperties pattern)
-- Vuex 4 (drop-in Vue 3 compatible, same this.$store API)
-- mitt event bus replacing Vue 2 event bus
-- 156 mechanical sed fixes (.native, $set, nuxt-link, static paths)
+## 6. Security Architecture
 
-### 6.3 Auth Bridge
-Client v3 reads JWT from `localStorage.token` (set by client v2 login).
-Same-origin, shared storage — log in once via main UI, /v3/ is authenticated.
+### 6.1 Authentication Flow
 
-## 7. Error Handling
+```mermaid
+sequenceDiagram
+    participant U as User/Browser
+    participant S as Server
+    participant PJ as passport-jwt
+    participant DB as Database
 
-### 7.1 asyncHandler
-All 63 async controller methods wrapped:
-```js
-asyncHandler(fn) → catches unhandled rejections → returns 500 JSON
+    U->>S: POST /login {username, password}
+    S->>DB: Verify credentials
+    DB-->>S: User record with JWT token
+    S-->>U: {user: {token: 'eyJ...'}}
+    Note over U: Store token in localStorage
+
+    U->>S: GET /api/libraries (Authorization: Bearer eyJ...)
+    S->>S: authMiddleware (Server.js:327)
+    S->>PJ: ExtractJwt.fromAuthHeaderAsBearerToken()
+    PJ->>DB: Find user by JWT payload.userId
+    DB-->>PJ: User record
+    PJ-->>S: req.user = user
+    S-->>U: Response
 ```
 
-### 7.2 friendlyError
-Maps technical errors to user-friendly messages:
-```
-ECONNREFUSED → "Service is not reachable..."
-401 → "Authentication failed..."
-ebook-convert → "Calibre is not installed..."
-```
-Sanitizes file paths, caps message length at 200 chars.
+### 6.2 Route Protection Matrix
 
-## 8. Testing Architecture
+| Route Group | Auth Type | Middleware |
+|-------------|-----------|-----------|
+| `/items/:id/reviews` | Per-item | LibraryItemController.middleware |
+| `/items/:id/send-to-*` | Per-item | LibraryItemController.middleware |
+| `/items/:id/auto-tag*` | Per-item | LibraryItemController.middleware |
+| `/items/:id/modernize*` | Per-item | LibraryItemController.middleware |
+| `/items/:id/summary*` | Per-item | LibraryItemController.middleware |
+| `/items/:id/convert-to-audio*` | Per-item | LibraryItemController.middleware |
+| `/items/:id/ocr*` | Per-item | LibraryItemController.middleware |
+| `/items/:id/podcast-feed` | Per-item | LibraryItemController.middleware |
+| `/items/:id/mobile-links` | Per-item | LibraryItemController.middleware |
+| `/incoming/*` | Global JWT | Server.js authMiddleware |
+| `/intelligence/*` | Global JWT | Server.js authMiddleware |
+| `/recommendations/*` | Global JWT | Server.js authMiddleware |
+| `/agent/*` | Global JWT | Server.js authMiddleware |
+| `/ai/*` | Global JWT | Server.js authMiddleware |
+| `/librivox/*` | Global JWT | Server.js authMiddleware |
+| `/gutenberg/*` | Global JWT | Server.js authMiddleware |
+| `/opds/*` | Global JWT | Server.js authMiddleware |
+| `/sync/*` | Global JWT | Server.js authMiddleware |
+| `/language/*` | Global JWT | Server.js authMiddleware |
+| `/tools/*` | Global JWT | Server.js authMiddleware |
+| `/ratings/*` | Global JWT | Server.js authMiddleware |
 
-| Layer | Framework | Count | What |
-|-------|-----------|-------|------|
-| Unit | mocha+chai+sinon | 464 | Pure logic, mocked deps |
-| DB Integration | mocha + in-memory SQLite | 11 | Model CRUD, constraints |
-| File Ops | mocha + real temp dirs | 9 | Filesystem safety |
-| Contract | mocha + mocked axios | 16 | External API parsing |
-| Agent Unit | pytest | 9 | Task handlers, registry |
-| Agent Integration | pytest + mock HTTP | 3 | Heartbeat, buffering |
-| E2E | Playwright | 11 | Live API endpoints |
-| **Total** | | **~470** | |
+### 6.3 External Process Execution
 
-## 9. Deployment
+| Manager | Processes | Risk |
+|---------|----------|------|
+| ConversionManager | `ebook-convert` | Input: user file paths (sanitized by Calibre) |
+| SyncManager | `whisper`, `ffmpeg` | Input: library file paths |
+| LanguageLearningManager | `piper`/`espeak`, `ffmpeg` | Input: generated text, library files |
+| TextToAudiobookManager | `piper`/`espeak`, `ffmpeg` | Input: extracted text, library files |
+| BookSummaryManager | `piper`/`espeak`, `ffmpeg` | Input: generated summary text |
+| Agent (abs-agent.py) | `ffprobe`, `ffmpeg` | Input: mapped file paths |
 
-### 9.1 Docker
-Multi-stage Dockerfile:
-1. Build client v2 (Nuxt 2 generate)
-2. Build client v3 (Nuxt 3 generate)
-3. Build server (npm ci --production)
-4. Runtime image (node:20-alpine + ffmpeg + tini)
+All external processes use `execFile` (not `exec` with shell interpolation) except LibriVoxManager which uses `exec` for `unzip` — potential shell injection if filenames contain special characters.
 
-### 9.2 Volumes
-All persistent, bind-mounted:
-- `/config` → SQLite DB + settings
-- `/metadata` → covers, cache, summaries, modernized texts
-- `/audiobooks` → library content
-- `/incoming` → drop zone
+## 7. OSS Dependency Map
 
-### 9.3 Environment Variables
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| LLM_PROVIDER | disabled | airouter/ollama/openai/custom/disabled |
-| INTELLO_URL | http://intello:8000 | L'Intello backend |
-| INTELLO_TOKEN | | Auth token |
-| OLLAMA_URL | http://localhost:11434 | Ollama (if direct) |
-| WHISPER_BIN | whisper | Whisper CLI path |
-| TTS_ENGINE | piper | piper or espeak |
-| CALIBRE_BIN | ebook-convert | Calibre CLI path |
+| Package | Version | Replaces | Used By |
+|---------|---------|----------|---------|
+| string-similarity | ^4.0.4 | Hand-rolled Jaccard word overlap | GroupingManager, SyncManager |
+| natural | ^8.0.1 | Hand-rolled stopwords, tokenizer, TF-IDF | RecommendationManager, SyncManager |
+| sbd | ^1.0.19 | Regex sentence splitting | LanguageLearningManager |
+| xmlbuilder2 | ^3.1.1 | Manual XML string concatenation (XSS risk) | DeliveryManager (OPDS) |
+| music-metadata | ^11.12.3 | Filename-only parsing | IncomingManager |
+| better-queue | ^3.8.12 | Raw array with manual splice | AgentController |
+| mitt | ^3.0.1 | Vue 2 event bus ($root.$emit) | client-v3 eventBus plugin |
+| vuex | ^4.1.0 | Vuex 3 (Vue 2) | client-v3 store (same API) |
+| vue-toastification | ^2.0.0-rc.5 | Vue 2 version | client-v3 toast plugin |
