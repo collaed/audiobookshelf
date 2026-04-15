@@ -1,4 +1,4 @@
-const { Constants } = require('@/plugins/constants')
+import { Constants } from '~/plugins/constants'
 
 export const state = () => ({
   libraries: [],

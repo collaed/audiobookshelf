@@ -186,7 +186,7 @@ export default {
 
       if (serverSettings.chromecastEnabled) {
         console.log('Chromecast enabled import script')
-        require('@/plugins/chromecast.js').default(this)
+        import('~/plugins/chromecast.js').then(m => m.default(this))
       }
 
       this.$store.commit('libraries/setLastLoad', 0) // Ensure libraries get loaded again when switching users

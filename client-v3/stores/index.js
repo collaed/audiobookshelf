@@ -1,6 +1,6 @@
 import { checkForUpdate, currentVersion } from '@/plugins/version'
 
-const { Constants } = require('@/plugins/constants')
+import { Constants } from '~/plugins/constants'
 
 export const state = () => ({
   Source: null,
