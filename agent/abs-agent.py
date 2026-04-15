@@ -668,6 +668,105 @@ def task_audio_clean(params, config):
         return {"error": str(e), "path": p}
 
 
+def task_find_duplicates(params, config):
+    """Fast duplicate detection using size + head/tail hash (fdupes_fast approach).
+
+    Quick mode: group by file size, then hash only first+last 4KB.
+    Catches 99%+ of duplicates with minimal disk I/O.
+
+    Params:
+      path: folder to scan (server path)
+      recursive: true (default)
+      min_size: minimum file size in bytes (default: 100000 = 100KB)
+    """
+    import hashlib
+    folder = params.get("path", "")
+    mp = map_path(folder, config)
+    recursive = params.get("recursive", True)
+    min_size = params.get("min_size", 100000)
+    BLOCK = 4096
+
+    if not os.path.isdir(mp):
+        return {"error": "folder not found", "path": folder}
+
+    # Phase 1: collect all files with sizes
+    files = []
+    if recursive:
+        for root, _, names in os.walk(mp):
+            for n in names:
+                fp = os.path.join(root, n)
+                try:
+                    sz = os.path.getsize(fp)
+                    if sz >= min_size:
+                        files.append({"path": fp, "size": sz})
+                except:
+                    pass
+    else:
+        for n in os.listdir(mp):
+            fp = os.path.join(mp, n)
+            if os.path.isfile(fp):
+                try:
+                    sz = os.path.getsize(fp)
+                    if sz >= min_size:
+                        files.append({"path": fp, "size": sz})
+                except:
+                    pass
+
+    log(f"[dupes] Scanned {len(files)} files in {folder}")
+
+    # Phase 2: group by size (instant, no I/O)
+    by_size = {}
+    for f in files:
+        by_size.setdefault(f["size"], []).append(f)
+    candidates = {sz: group for sz, group in by_size.items() if len(group) > 1}
+
+    if not candidates:
+        return {"path": folder, "totalFiles": len(files), "duplicateGroups": 0, "groups": []}
+
+    # Phase 3: hash first+last 4KB for size-matched groups
+    def quick_hash(filepath):
+        h = hashlib.md5()
+        try:
+            with open(filepath, "rb") as fh:
+                head = fh.read(BLOCK)
+                h.update(head)
+                sz = os.path.getsize(filepath)
+                if sz > BLOCK:
+                    fh.seek(-BLOCK, 2)
+                    h.update(fh.read(BLOCK))
+        except:
+            return None
+        return h.hexdigest()
+
+    groups = []
+    for sz, group in candidates.items():
+        by_hash = {}
+        for f in group:
+            qh = quick_hash(f["path"])
+            if qh:
+                by_hash.setdefault(qh, []).append(f)
+        for h, dupes in by_hash.items():
+            if len(dupes) > 1:
+                groups.append({
+                    "size": sz,
+                    "hash": h,
+                    "count": len(dupes),
+                    "files": [unmap_path(d["path"], config) for d in dupes],
+                    "wastedBytes": sz * (len(dupes) - 1)
+                })
+
+    total_wasted = sum(g["wastedBytes"] for g in groups)
+    log(f"[dupes] Found {len(groups)} duplicate groups, {total_wasted // 1048576}MB wasted")
+
+    return {
+        "path": folder,
+        "totalFiles": len(files),
+        "duplicateGroups": len(groups),
+        "totalWastedBytes": total_wasted,
+        "groups": groups
+    }
+
+
 def task_diag(params, config):
     """Diagnostic: system info, path checks, disk space."""
     import platform
@@ -721,6 +820,7 @@ TASK_HANDLERS = {
     "audio_diagnose": task_audio_diagnose,
     "audio_auto_clean": task_audio_auto_clean,
     "audio_auto_clean_folder": task_audio_auto_clean_folder,
+    "find_duplicates": task_find_duplicates,
     "audio_clean": task_audio_clean,
     "move_file": task_move_file,
     "download_metadata": task_download_metadata,
@@ -728,7 +828,7 @@ TASK_HANDLERS = {
     "update_agent": task_update_agent,
 }
 
-BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata", "audio_clean", "audio_diagnose", "audio_auto_clean", "audio_auto_clean_folder"}
+BG_TASK_TYPES = {"scan_incoming", "scan_incoming_audio", "download_metadata", "audio_clean", "audio_diagnose", "audio_auto_clean", "audio_auto_clean_folder", "find_duplicates"}
 
 
 def run_task(ttype, params, config):
