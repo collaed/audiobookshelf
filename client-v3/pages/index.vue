@@ -1,31 +1,35 @@
 <script setup>
-const api = useApi()
+const { get, post, isAuthenticated } = useApi()
 
 const aiStatus = ref(null)
 const agents = ref([])
 const activity = ref([])
 const loading = ref(true)
+const authError = ref(false)
 
 onMounted(async () => {
   try {
     const [ai, ag, act] = await Promise.all([
-      api.get('/ai/status'),
-      api.get('/agent/agents'),
-      api.get('/intelligence/activity')
+      get('/ai/status').catch(() => null),
+      get('/agent/agents').catch(() => null),
+      get('/intelligence/activity').catch(() => null)
     ])
+    if (!ai && !ag && !act) {
+      authError.value = true
+    }
     aiStatus.value = ai
-    agents.value = ag
-    activity.value = (act || []).slice(0, 10)
+    agents.value = ag?.agents || ag || []
+    activity.value = Array.isArray(act) ? act.slice(0, 10) : []
   } finally {
     loading.value = false
   }
 })
 
 async function scanIncoming() {
-  await api.post('/incoming/scan')
+  await post('/incoming/scan')
 }
 async function rebuildProfile() {
-  await api.post('/recommendations/profile/rebuild')
+  await post('/recommendations/profile/rebuild')
 }
 </script>
 
@@ -34,6 +38,11 @@ async function rebuildProfile() {
     <h1 class="text-2xl font-bold mb-6">Dashboard</h1>
 
     <div v-if="loading" class="text-[#636e72]">Loading…</div>
+    <div v-else-if="authError" class="bg-[#2d3436] p-6 rounded-lg text-center">
+      <p class="text-xl mb-3">🔐 Authentication Required</p>
+      <p class="text-[#636e72] mb-4">Log in to the main ABS interface first, then come back here.</p>
+      <a href="/" class="bg-[#6c5ce7] px-6 py-2 rounded text-white inline-block">Go to Login</a>
+    </div>
 
     <div v-else class="grid gap-6 md:grid-cols-2">
       <!-- AI Status -->
