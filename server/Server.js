@@ -314,10 +314,10 @@ class Server {
         tempFileDir: Path.join(global.MetadataPath, 'tmp')
       })
     )
-    router.use(express.urlencoded({ extended: true, limit: '5mb' }))
+    router.use(express.urlencoded({ extended: true, limit: '5gb' }))
 
     // Skip JSON parsing for internal-api routes
-    router.use(/^(?!\/internal-api).*/, express.json({ limit: '10mb' }))
+    router.use(/^(?!\/internal-api).*/, express.json({ limit: '5gb' }))
 
     router.use('/api', this.auth.ifAuthNeeded(this.authMiddleware.bind(this)), this.apiRouter.router)
     router.use('/hls', this.hlsRouter.router)
