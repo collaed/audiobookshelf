@@ -1,5 +1,6 @@
 const Path = require('path')
 const { execFile } = require('child_process')
+const sbd = require('sbd')
 const Logger = require('../Logger')
 const Database = require('../Database')
 const fs = require('../libs/fsExtra')
@@ -27,11 +28,8 @@ class LanguageLearningManager {
    * Split text into sentences
    */
   splitSentences(text) {
-    return text
-      .replace(/([.!?…])\s+/g, '$1\n')
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 5)
+    return sbd.sentences(text, { newline_boundaries: true, preserve_whitespace: false })
+      .filter((s) => s.trim().length > 5)
   }
 
   /**

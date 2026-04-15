@@ -1,5 +1,6 @@
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
+const Queue = require('better-queue')
 const SocketAuthority = require('../SocketAuthority')
 const Database = require('../Database')
 const IncomingManager = require('../managers/IncomingManager')
@@ -18,8 +19,18 @@ const VALID_TASK_TYPES = [
 
 class AgentController {
   constructor() {
-    this.taskQueue = []
+    this.taskQueue = new Queue((task, cb) => cb(null, task), {
+      concurrent: 1,
+      priority: (task, cb) => cb(null, -(task.priority || 0)),
+      afterProcessDelay: 0
+    })
+    this.pendingTasks = []
     this.agents = new Map()
+
+    // When queue processes a task, move it to pending for agent pickup
+    this.taskQueue.on('task_finish', (taskId, result) => {
+      this.pendingTasks.push(result)
+    })
   }
 
   /**
@@ -41,7 +52,7 @@ class AgentController {
       }
     }
 
-    const task = this.taskQueue.shift() || null
+    const task = this.pendingTasks.shift() || null
     res.json({ task })
   }
 
@@ -61,9 +72,8 @@ class AgentController {
       priority,
       createdAt: Date.now()
     }
-    // Insert sorted by priority (lower = higher priority)
-    const idx = this.taskQueue.findIndex((t) => t.priority > priority)
-    this.taskQueue.splice(idx === -1 ? this.taskQueue.length : idx, 0, task)
+    // Insert into priority queue
+    this.taskQueue.push(task)
 
     Logger.info(`[AgentController] Queued ${type} (${task.id}) priority=${priority}`)
     SocketAuthority.emitter('agent_task_queued', task)
@@ -72,7 +82,7 @@ class AgentController {
 
   /** GET: /api/agent/tasks */
   async getTasks(req, res) {
-    res.json({ tasks: this.taskQueue })
+    res.json({ tasks: this.pendingTasks })
   }
 
   /** GET: /api/agent/agents */

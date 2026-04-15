@@ -2,6 +2,9 @@ const Path = require('path')
 const Logger = require('../Logger')
 const Database = require('../Database')
 const fs = require('../libs/fsExtra')
+const stringSimilarity = require('string-similarity')
+const natural = require('natural')
+const tokenizer = new natural.WordTokenizer()
 
 /**
  * Detects and groups related files that arrive in separate batches.
@@ -31,7 +34,7 @@ class GroupingManager {
     return title
       .replace(this.stripWords, '')
       .replace(this.stripNumbers, '')
-      .replace(/[-_.:,()[\]]/g, ' ')
+      .replace(/[-_.:,()\[\]]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase()
@@ -54,17 +57,7 @@ class GroupingManager {
    */
   similarity(a, b) {
     if (!a || !b) return 0
-    a = a.toLowerCase()
-    b = b.toLowerCase()
-    if (a === b) return 1
-    if (a.includes(b) || b.includes(a)) return 0.9
-
-    // Jaccard on words
-    const wa = new Set(a.split(/\s+/))
-    const wb = new Set(b.split(/\s+/))
-    const intersection = [...wa].filter((w) => wb.has(w)).length
-    const union = new Set([...wa, ...wb]).size
-    return union > 0 ? intersection / union : 0
+    return stringSimilarity.compareTwoStrings(a.toLowerCase(), b.toLowerCase())
   }
 
   /**

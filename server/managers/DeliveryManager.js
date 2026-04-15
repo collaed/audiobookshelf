@@ -1,4 +1,5 @@
 const Path = require('path')
+const { create } = require('xmlbuilder2')
 const Logger = require('../Logger')
 const Database = require('../Database')
 const fs = require('../libs/fsExtra')
@@ -169,34 +170,34 @@ class DeliveryManager {
    * Build OPDS Atom XML from entries
    */
   buildOpdsXml(entries, baseUrl, libraryId) {
-    const escape = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    const feed = create({ version: '1.0', encoding: 'UTF-8' })
+      .ele('feed', { xmlns: 'http://www.w3.org/2005/Atom', 'xmlns:opds': 'http://opds-spec.org/2010/catalog', 'xmlns:dc': 'http://purl.org/dc/elements/1.1/' })
+        .ele('id').txt(`urn:abs:library:${libraryId}`).up()
+        .ele('title').txt('Audiobookshelf Library').up()
+        .ele('updated').txt(new Date().toISOString()).up()
+        .ele('link').att('rel', 'self').att('href', `${baseUrl}/api/opds/library/${libraryId}`).att('type', 'application/atom+xml;profile=opds-catalog;kind=acquisition').up()
+        .ele('link').att('rel', 'start').att('href', `${baseUrl}/api/opds`).att('type', 'application/atom+xml;profile=opds-catalog;kind=navigation').up()
 
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
-  <id>urn:abs:library:${libraryId}</id>
-  <title>Audiobookshelf Library</title>
-  <updated>${new Date().toISOString()}</updated>
-  <link rel="self" href="${baseUrl}/api/opds/library/${libraryId}" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
-  <link rel="start" href="${baseUrl}/api/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
-`
     for (const e of entries) {
-      xml += `  <entry>
-    <id>${escape(e.id)}</id>
-    <title>${escape(e.title)}</title>
-    <updated>${new Date(e.updated).toISOString()}</updated>
-    <summary>${escape(e.summary).slice(0, 500)}</summary>
-    <dc:language xmlns:dc="http://purl.org/dc/elements/1.1/">${escape(e.language)}</dc:language>
-`
+      const entry = feed.ele('entry')
+        .ele('id').txt(e.id).up()
+        .ele('title').txt(e.title).up()
+        .ele('updated').txt(new Date(e.updated).toISOString()).up()
+        .ele('summary').txt((e.summary || '').slice(0, 500)).up()
+        .ele('dc:language').txt(e.language || 'en').up()
+
       for (const a of e.authors) {
-        xml += `    <author><name>${escape(a.name)}</name></author>\n`
+        entry.ele('author').ele('name').txt(a.name).up().up()
       }
       for (const l of e.links) {
-        xml += `    <link rel="${escape(l.rel)}" href="${escape(l.href)}" type="${escape(l.type)}"${l.title ? ` title="${escape(l.title)}"` : ''}/>\n`
+        const link = entry.ele('link').att('rel', l.rel).att('href', l.href).att('type', l.type)
+        if (l.title) link.att('title', l.title)
+        link.up()
       }
-      xml += `  </entry>\n`
+      entry.up()
     }
-    xml += `</feed>`
-    return xml
+
+    return feed.end({ prettyPrint: true })
   }
 
   /**

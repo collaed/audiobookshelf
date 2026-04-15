@@ -1,21 +1,9 @@
 const Logger = require('../Logger')
 const Database = require('../Database')
+const natural = require('natural')
+const stopwords = natural.stopwords
 
 const WEIGHTS = { author: 2, narrator: 1.5, genre: 1, theme: 1 }
-
-const STOPWORDS = new Set([
-  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-  'should', 'may', 'might', 'shall', 'can', 'to', 'of', 'in', 'for',
-  'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
-  'before', 'after', 'and', 'but', 'or', 'nor', 'not', 'so', 'yet',
-  'both', 'either', 'neither', 'each', 'every', 'all', 'any', 'few',
-  'more', 'most', 'other', 'some', 'such', 'no', 'only', 'own', 'same',
-  'than', 'too', 'very', 'just', 'because', 'about', 'up', 'out', 'if',
-  'then', 'that', 'this', 'it', 'its', 'he', 'she', 'they', 'them',
-  'his', 'her', 'their', 'what', 'which', 'who', 'whom', 'how', 'when',
-  'where', 'why', 'while', 'also', 'over', 'new', 'one', 'two', 'first'
-])
 
 class RecommendationManager {
   constructor() {
@@ -29,11 +17,15 @@ class RecommendationManager {
    */
   extractThemes(text) {
     if (!text) return {}
-    const freq = {}
-    text.toLowerCase().replace(/<[^>]+>/g, ' ').replace(/[^a-z\s]/g, ' ').split(/\s+/)
-      .filter((w) => w.length > 3 && !STOPWORDS.has(w))
-      .forEach((w) => { freq[w] = (freq[w] || 0) + 1 })
-    return freq
+    const tokenizer = new natural.WordTokenizer()
+    const tokens = tokenizer.tokenize(text.toLowerCase().replace(/<[^>]+>/g, ''))
+    const themes = {}
+    for (const word of tokens) {
+      if (word.length > 3 && !stopwords.includes(word)) {
+        themes[word] = (themes[word] || 0) + 1
+      }
+    }
+    return themes
   }
 
   /**

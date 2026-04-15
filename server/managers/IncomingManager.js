@@ -4,6 +4,7 @@ const Logger = require('../Logger')
 const SocketAuthority = require('../SocketAuthority')
 const Database = require('../Database')
 const fs = require('../libs/fsExtra')
+const mm = require('music-metadata')
 
 class IncomingManager {
   constructor() {
@@ -151,6 +152,29 @@ class IncomingManager {
     return book
   }
 
+  async readEmbeddedMetadata(filePath) {
+    try {
+      const metadata = await mm.parseFile(filePath, { duration: true, skipCovers: true })
+      const common = metadata.common || {}
+      return {
+        title: common.title || '',
+        author: common.artist || common.albumartist || '',
+        album: common.album || '',
+        genre: (common.genre || [])[0] || '',
+        year: common.year ? String(common.year) : '',
+        trackNumber: common.track?.no || null,
+        diskNumber: common.disk?.no || null,
+        duration: metadata.format?.duration || 0,
+        codec: metadata.format?.codec || '',
+        bitrate: metadata.format?.bitrate ? Math.round(metadata.format.bitrate / 1000) : 0,
+        sampleRate: metadata.format?.sampleRate || 0,
+        channels: metadata.format?.numberOfChannels || 0,
+      }
+    } catch {
+      return null
+    }
+  }
+
   async processFile(filePath) {
     const ext = Path.extname(filePath).toLowerCase()
     if (!this.audioExtensions.has(ext) || this.processing.has(filePath)) return
@@ -158,6 +182,14 @@ class IncomingManager {
     this.processing.add(filePath)
     try {
       const parsed = this.parseFilename(filePath)
+
+      // Try embedded metadata (more reliable than filename parsing)
+      const embedded = await this.readEmbeddedMetadata(filePath)
+      if (embedded) {
+        if (embedded.title) parsed.title = embedded.title
+        if (embedded.author) parsed.author = embedded.author
+      }
+
       let stat
       try {
         stat = await fs.stat(filePath)

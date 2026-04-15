@@ -3,6 +3,9 @@ const { execFile } = require('child_process')
 const Logger = require('../Logger')
 const Database = require('../Database')
 const fs = require('../libs/fsExtra')
+const stringSimilarity = require('string-similarity')
+const natural = require('natural')
+const TfIdf = natural.TfIdf
 
 /**
  * Matches audiobooks to ebooks and syncs them using STT (speech-to-text).
@@ -125,39 +128,45 @@ class SyncManager {
    */
   wordOverlap(textA, textB) {
     if (!textA || !textB) return 0
-    const wordsA = new Set(textA.toLowerCase().split(/\s+/).filter((w) => w.length > 3))
-    const wordsB = new Set(textB.toLowerCase().split(/\s+/).filter((w) => w.length > 3))
-    if (!wordsA.size || !wordsB.size) return 0
-    const intersection = [...wordsA].filter((w) => wordsB.has(w)).length
-    const smaller = Math.min(wordsA.size, wordsB.size)
-    return intersection / smaller
+    return stringSimilarity.compareTwoStrings(textA.toLowerCase(), textB.toLowerCase())
   }
 
   /**
    * Find longest common subsequence of words for alignment
    */
   findAlignmentPoints(transcript, ebookText) {
-    const tWords = transcript.toLowerCase().split(/\s+/).filter((w) => w.length > 2)
-    const eWords = ebookText.toLowerCase().split(/\s+/).filter((w) => w.length > 2)
+    const tfidf = new TfIdf()
+    // Split ebook into windows
+    const eWords = ebookText.split(/\s+/)
+    const windowSize = 50
+    const windows = []
+    for (let i = 0; i <= eWords.length - windowSize; i += 25) {
+      windows.push(eWords.slice(i, i + windowSize).join(' '))
+    }
+    windows.forEach((w) => tfidf.addDocument(w))
+    tfidf.addDocument(transcript)
 
-    // Sliding window: find where in the ebook text the transcript best matches
-    const windowSize = Math.min(tWords.length, 50)
+    // Find which window the transcript is most similar to
     let bestScore = 0
     let bestPos = 0
-
-    for (let i = 0; i <= eWords.length - windowSize; i++) {
-      const window = new Set(eWords.slice(i, i + windowSize))
-      const score = tWords.filter((w) => window.has(w)).length
-      if (score > bestScore) {
-        bestScore = score
-        bestPos = i
+    const transcriptIdx = windows.length // last document
+    tfidf.listTerms(transcriptIdx).forEach((term) => {
+      for (let i = 0; i < windows.length; i++) {
+        const measure = tfidf.tfidf(term.term, i)
+        if (measure > 0) {
+          const score = measure * term.tfidf
+          if (score > bestScore) {
+            bestScore = score
+            bestPos = i * 25
+          }
+        }
       }
-    }
+    })
 
     return {
-      matchScore: tWords.length > 0 ? bestScore / tWords.length : 0,
+      matchScore: Math.min(bestScore / 10, 1),
       ebookWordPosition: bestPos,
-      matchedWords: bestScore
+      matchedWords: Math.round(bestScore)
     }
   }
 
