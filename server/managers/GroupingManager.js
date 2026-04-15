@@ -5,6 +5,7 @@ const fs = require('../libs/fsExtra')
 const stringSimilarity = require('string-similarity')
 const natural = require('natural')
 const tokenizer = new natural.WordTokenizer()
+const { normalizeName, namesMatch } = require('../utils/nameNormalizer')
 
 /**
  * Detects and groups related files that arrive in separate batches.
@@ -122,8 +123,8 @@ class GroupingManager {
     const groups = {}
     for (const book of books) {
       const normTitle = this.normalizeTitle(book.title)
-      const author = book.authors?.[0]?.name?.toLowerCase()?.trim() || ''
-      const key = `${author}|||${normTitle}`
+      const author = book.authors?.[0]?.name || ''
+      const key = `${normalizeName(author)}|||${normTitle}`
 
       if (!groups[key]) groups[key] = []
       groups[key].push({

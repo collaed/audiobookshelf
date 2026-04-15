@@ -5,6 +5,7 @@ const SocketAuthority = require('../SocketAuthority')
 const Database = require('../Database')
 const fs = require('../libs/fsExtra')
 const mm = require('music-metadata')
+const { namesMatch } = require('../utils/nameNormalizer')
 
 class IncomingManager {
   constructor() {
@@ -146,8 +147,8 @@ class IncomingManager {
     if (!book) return null
     if (author) {
       const authors = await Database.bookAuthorModel.findAll({ where: { bookId: book.id }, include: [{ model: Database.authorModel }] })
-      const authorNames = authors.map((ba) => ba.author?.name?.toLowerCase()).filter(Boolean)
-      if (!authorNames.some((n) => n.includes(author.toLowerCase()))) return null
+      const authorNames = authors.map((ba) => ba.author?.name).filter(Boolean)
+      if (!authorNames.some((n) => namesMatch(n, author))) return null
     }
     return book
   }
