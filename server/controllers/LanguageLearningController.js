@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const LanguageLearningManager = require('../managers/LanguageLearningManager')
@@ -19,7 +19,7 @@ class LanguageLearningController {
       res.json(result)
     } catch (err) {
       Logger.error(`[LanguageLearning] Text interleave error: ${err.message}`)
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -38,7 +38,7 @@ class LanguageLearningController {
       res.json(result)
     } catch (err) {
       Logger.error(`[LanguageLearning] Audio interleave error: ${err.message}`)
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -68,7 +68,7 @@ class LanguageLearningController {
         preview: pairs.slice(0, limit || 10)
       })
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 }

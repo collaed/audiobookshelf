@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const SyncManager = require('../managers/SyncManager')
@@ -27,7 +27,7 @@ class SyncController {
       const result = await SyncManager.verifyPair(audioBookId, ebookBookId)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -39,7 +39,7 @@ class SyncController {
       const result = await SyncManager.generateChapterSync(audioBookId, ebookBookId)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 }

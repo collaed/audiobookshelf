@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const AutoTagManager = require('../managers/AutoTagManager')
@@ -14,7 +14,7 @@ class AutoTagController {
       const tags = await AutoTagManager.generateTags(book.id)
       res.json(tags)
     } catch (err) {
-      res.status(500).json({ error: err.message })
+      res.status(500).json(friendlyError(err))
     }
   }
 
@@ -28,7 +28,7 @@ class AutoTagController {
       const result = await AutoTagManager.applyTags(book.id, tags)
       res.json({ tags, ...result })
     } catch (err) {
-      res.status(500).json({ error: err.message })
+      res.status(500).json(friendlyError(err))
     }
   }
 
@@ -39,7 +39,7 @@ class AutoTagController {
       const result = await AutoTagManager.autoTagLibrary(req.params.id, { limit })
       res.json(result)
     } catch (err) {
-      res.status(500).json({ error: err.message })
+      res.status(500).json(friendlyError(err))
     }
   }
 }

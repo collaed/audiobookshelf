@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -29,7 +29,7 @@ class OcrController {
       res.json(result)
     } catch (err) {
       Logger.error(`[OcrController] OCR error: ${err.message}`)
-      res.status(500).json({ error: err.message })
+      res.status(500).json(friendlyError(err))
     }
   }
 
@@ -47,7 +47,7 @@ class OcrController {
       res.json(result)
     } catch (err) {
       Logger.error(`[OcrController] Text extraction error: ${err.message}`)
-      res.status(500).json({ error: err.message })
+      res.status(500).json(friendlyError(err))
     }
   }
 }

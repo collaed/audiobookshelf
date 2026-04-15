@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const ReviewManager = require('../managers/ReviewManager')

@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const GroupingManager = require('../managers/GroupingManager')
@@ -30,7 +30,7 @@ class LibraryToolsController {
       const result = await GroupingManager.groupAndMove(decodeURIComponent(req.params.key), folder.path)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -49,7 +49,7 @@ class LibraryToolsController {
       const result = await ConversionManager.convertLibraryItem(bookId, format, options || {})
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -62,7 +62,7 @@ class LibraryToolsController {
       const results = await ConversionManager.convertForAllReaders(bookId)
       res.json(results)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -82,7 +82,7 @@ class LibraryToolsController {
       const meta = await ConversionManager.extractMetadata(filePath)
       res.json(meta)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 }

@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const LlmProvider = require('../managers/LlmProvider')
@@ -32,7 +32,7 @@ class AiController {
       const result = await BookCompanionManager.getRecap(req.params.bookId, req.user.id)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -42,7 +42,7 @@ class AiController {
       const result = await BookCompanionManager.getChapterSummary(req.params.bookId, parseInt(req.params.chapterIndex))
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -53,7 +53,7 @@ class AiController {
       const result = await BookCompanionManager.smartSearch(req.body.query, req.user.id)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -64,7 +64,7 @@ class AiController {
       const result = await BookCompanionManager.askAboutBook(req.params.bookId, req.user.id, req.body.question)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -75,7 +75,7 @@ class AiController {
       const result = await BookCompanionManager.getCharacterInfo(req.params.bookId, req.user.id, req.body.name)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -86,7 +86,7 @@ class AiController {
       const result = await BookCompanionManager.checkAlignmentQuality(req.body.pairs)
       res.json(result)
     } catch (err) {
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 }

@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -22,7 +22,7 @@ class DeliveryController {
       res.json(result)
     } catch (err) {
       Logger.error(`[DeliveryController] Send to Kindle error: ${err.message}`)
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -41,7 +41,7 @@ class DeliveryController {
       res.json(result)
     } catch (err) {
       Logger.error(`[DeliveryController] Send to device error: ${err.message}`)
-      res.status(400).json({ error: err.message })
+      res.status(400).json(friendlyError(err))
     }
   }
 
@@ -95,7 +95,7 @@ class DeliveryController {
       res.send(xml)
     } catch (err) {
       Logger.error(`[DeliveryController] OPDS error: ${err.message}`)
-      res.status(500).json({ error: err.message })
+      res.status(500).json(friendlyError(err))
     }
   }
 

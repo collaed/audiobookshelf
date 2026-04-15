@@ -1,4 +1,4 @@
-const { asyncHandler } = require('../utils/asyncHandler')
+const { asyncHandler, friendlyError } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const LibriVoxManager = require('../managers/LibriVoxManager')
@@ -41,7 +41,7 @@ class LibriVoxController {
       res.json(result)
     } catch (err) {
       Logger.error(`[LibriVoxController] Download error: ${err.message}`)
-      res.status(500).json({ error: err.message })
+      res.status(500).json(friendlyError(err))
     }
   }
 }
