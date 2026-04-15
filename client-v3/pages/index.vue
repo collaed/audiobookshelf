@@ -6,8 +6,15 @@ const agents = ref([])
 const activity = ref([])
 const loading = ref(true)
 const authError = ref(false)
+const hasToken = ref(false)
 
 onMounted(async () => {
+  hasToken.value = !!localStorage.getItem('token')
+  if (!hasToken.value) {
+    authError.value = true
+    loading.value = false
+    return
+  }
   try {
     const [ai, ag, act] = await Promise.all([
       get('/ai/status').catch(() => null),
