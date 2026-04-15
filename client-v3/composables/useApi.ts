@@ -1,12 +1,22 @@
 export const useApi = () => {
   const config = useRuntimeConfig()
 
+  const getToken = () => {
+    if (import.meta.client) {
+      return localStorage.getItem('token') || ''
+    }
+    return ''
+  }
+
   const api = async (path: string, options: any = {}) => {
+    const token = getToken()
     try {
       return await $fetch(`${config.public.apiBase}${path}`, {
         ...options,
-        credentials: 'include', // send session cookies (connect.sid)
-        headers: { ...options.headers }
+        headers: {
+          ...options.headers,
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
       })
     } catch (err: any) {
       if (err?.response?.status === 401 || err?.statusCode === 401) {

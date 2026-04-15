@@ -1,5 +1,5 @@
 <script setup>
-const api = useApi()
+const { get, post } = useApi()
 
 const items = ref([])
 const loading = ref(true)
@@ -9,24 +9,25 @@ onMounted(() => fetchPending())
 async function fetchPending() {
   loading.value = true
   try {
-    items.value = await api.get('/incoming/pending') || []
+    const resp = await get('/incoming/pending')
+    items.value = resp?.items || (Array.isArray(resp) ? resp : [])
   } finally {
     loading.value = false
   }
 }
 
 async function scanNow() {
-  await api.post('/incoming/scan')
+  await post('/incoming/scan')
   await fetchPending()
 }
 
 async function confirm(item) {
-  await api.post(`/incoming/${item.id}/confirm`, { libraryId: 'main' })
+  await post(`/incoming/${item.id}/confirm`, { libraryId: 'main' })
   items.value = items.value.filter(i => i.id !== item.id)
 }
 
 async function reject(item) {
-  await api.post(`/incoming/${item.id}/reject`)
+  await post(`/incoming/${item.id}/reject`)
   items.value = items.value.filter(i => i.id !== item.id)
 }
 </script>

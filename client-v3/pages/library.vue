@@ -12,7 +12,7 @@ const search = ref('')
 onMounted(async () => {
   try {
     const resp = await get('/libraries')
-    libraries.value = resp.libraries || resp || []
+    libraries.value = resp?.libraries || (Array.isArray(resp) ? resp : [])
     if (libraries.value.length && !libraryId.value) {
       libraryId.value = libraries.value[0].id
     }
@@ -26,7 +26,7 @@ async function loadItems() {
   loading.value = true
   try {
     const resp = await get(`/libraries/${libraryId.value}/items?limit=100&minified=1`)
-    items.value = resp.results || resp || []
+    items.value = resp?.results || (Array.isArray(resp) ? resp : [])
   } finally {
     loading.value = false
   }
