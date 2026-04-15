@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -173,4 +174,13 @@ class IntelligenceController {
     res.json({ recommendations: sessions })
   }
 }
-module.exports = new IntelligenceController()
+const _inst = new IntelligenceController()
+_inst.getLibraryQuality = asyncHandler(_inst.getLibraryQuality.bind(_inst))
+_inst.getSeriesGaps = asyncHandler(_inst.getSeriesGaps.bind(_inst))
+_inst.getNarratorConsistency = asyncHandler(_inst.getNarratorConsistency.bind(_inst))
+_inst.getDurationStats = asyncHandler(_inst.getDurationStats.bind(_inst))
+_inst.getSpaceSavers = asyncHandler(_inst.getSpaceSavers.bind(_inst))
+_inst.getActivityFeed = asyncHandler(_inst.getActivityFeed.bind(_inst))
+_inst.compareTastes = asyncHandler(_inst.compareTastes.bind(_inst))
+_inst.getCommunityRecommendations = asyncHandler(_inst.getCommunityRecommendations.bind(_inst))
+module.exports = _inst

@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -71,4 +72,10 @@ class IncomingController {
     res.sendStatus(200)
   }
 }
-module.exports = new IncomingController()
+const _inst = new IncomingController()
+_inst.getAll = asyncHandler(_inst.getAll.bind(_inst))
+_inst.getPending = asyncHandler(_inst.getPending.bind(_inst))
+_inst.confirm = asyncHandler(_inst.confirm.bind(_inst))
+_inst.reject = asyncHandler(_inst.reject.bind(_inst))
+_inst.scan = asyncHandler(_inst.scan.bind(_inst))
+module.exports = _inst

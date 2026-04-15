@@ -182,7 +182,9 @@ class Server {
       Watcher.on('scanFilesChanged', (pendingFileUpdates, pendingTask) => {
         LibraryScanner.scanFilesChanged(pendingFileUpdates, pendingTask)
       })
-      await IncomingManager.init()
+      await IncomingManager.init().catch((err) => {
+        Logger.error(`[Server] IncomingManager init failed (non-fatal): ${err.message}`)
+      })
     }
   }
 

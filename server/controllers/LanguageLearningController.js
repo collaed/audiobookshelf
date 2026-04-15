@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const LanguageLearningManager = require('../managers/LanguageLearningManager')
@@ -71,4 +72,8 @@ class LanguageLearningController {
     }
   }
 }
-module.exports = new LanguageLearningController()
+const _inst = new LanguageLearningController()
+_inst.interleaveText = asyncHandler(_inst.interleaveText.bind(_inst))
+_inst.interleaveAudio = asyncHandler(_inst.interleaveAudio.bind(_inst))
+_inst.previewAlignment = asyncHandler(_inst.previewAlignment.bind(_inst))
+module.exports = _inst

@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const AutoTagManager = require('../managers/AutoTagManager')
@@ -42,4 +43,8 @@ class AutoTagController {
     }
   }
 }
-module.exports = new AutoTagController()
+const _inst = new AutoTagController()
+_inst.tagItem = asyncHandler(_inst.tagItem.bind(_inst))
+_inst.tagAndApply = asyncHandler(_inst.tagAndApply.bind(_inst))
+_inst.tagLibrary = asyncHandler(_inst.tagLibrary.bind(_inst))
+module.exports = _inst

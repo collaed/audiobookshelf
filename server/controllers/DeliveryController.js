@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -133,4 +134,11 @@ class DeliveryController {
     res.send(xml)
   }
 }
-module.exports = new DeliveryController()
+const _inst = new DeliveryController()
+_inst.sendToKindle = asyncHandler(_inst.sendToKindle.bind(_inst))
+_inst.sendToDevice = asyncHandler(_inst.sendToDevice.bind(_inst))
+_inst.getMobileLinks = asyncHandler(_inst.getMobileLinks.bind(_inst))
+_inst.opdsRoot = asyncHandler(_inst.opdsRoot.bind(_inst))
+_inst.opdsLibrary = asyncHandler(_inst.opdsLibrary.bind(_inst))
+_inst.opdsSearch = asyncHandler(_inst.opdsSearch.bind(_inst))
+module.exports = _inst

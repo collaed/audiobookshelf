@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const LlmProvider = require('../managers/LlmProvider')
@@ -89,4 +90,14 @@ class AiController {
     }
   }
 }
-module.exports = new AiController()
+const _inst = new AiController()
+_inst.status = asyncHandler(_inst.status.bind(_inst))
+_inst.getConfig = asyncHandler(_inst.getConfig.bind(_inst))
+_inst.updateConfig = asyncHandler(_inst.updateConfig.bind(_inst))
+_inst.getRecap = asyncHandler(_inst.getRecap.bind(_inst))
+_inst.getChapterSummary = asyncHandler(_inst.getChapterSummary.bind(_inst))
+_inst.smartSearch = asyncHandler(_inst.smartSearch.bind(_inst))
+_inst.askAboutBook = asyncHandler(_inst.askAboutBook.bind(_inst))
+_inst.getCharacter = asyncHandler(_inst.getCharacter.bind(_inst))
+_inst.checkAlignment = asyncHandler(_inst.checkAlignment.bind(_inst))
+module.exports = _inst

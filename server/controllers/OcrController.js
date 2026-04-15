@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -50,4 +51,8 @@ class OcrController {
     }
   }
 }
-module.exports = new OcrController()
+const _inst = new OcrController()
+_inst.status = asyncHandler(_inst.status.bind(_inst))
+_inst.ocrItem = asyncHandler(_inst.ocrItem.bind(_inst))
+_inst.extractText = asyncHandler(_inst.extractText.bind(_inst))
+module.exports = _inst

@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const LibriVoxManager = require('../managers/LibriVoxManager')
@@ -44,4 +45,9 @@ class LibriVoxController {
     }
   }
 }
-module.exports = new LibriVoxController()
+const _inst = new LibriVoxController()
+_inst.search = asyncHandler(_inst.search.bind(_inst))
+_inst.browse = asyncHandler(_inst.browse.bind(_inst))
+_inst.getDetails = asyncHandler(_inst.getDetails.bind(_inst))
+_inst.download = asyncHandler(_inst.download.bind(_inst))
+module.exports = _inst

@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const SyncManager = require('../managers/SyncManager')
@@ -42,4 +43,9 @@ class SyncController {
     }
   }
 }
-module.exports = new SyncController()
+const _inst = new SyncController()
+_inst.check = asyncHandler(_inst.check.bind(_inst))
+_inst.detectPairs = asyncHandler(_inst.detectPairs.bind(_inst))
+_inst.verifyPair = asyncHandler(_inst.verifyPair.bind(_inst))
+_inst.generateSync = asyncHandler(_inst.generateSync.bind(_inst))
+module.exports = _inst

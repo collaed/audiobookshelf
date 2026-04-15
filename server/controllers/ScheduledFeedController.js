@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const ScheduledFeedManager = require('../managers/ScheduledFeedManager')
@@ -32,4 +33,7 @@ class ScheduledFeedController {
     res.json(result)
   }
 }
-module.exports = new ScheduledFeedController()
+const _inst = new ScheduledFeedController()
+_inst.createFeed = asyncHandler(_inst.createFeed.bind(_inst))
+_inst.getFeedSchedule = asyncHandler(_inst.getFeedSchedule.bind(_inst))
+module.exports = _inst

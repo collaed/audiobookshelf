@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const GroupingManager = require('../managers/GroupingManager')
@@ -85,4 +86,12 @@ class LibraryToolsController {
     }
   }
 }
-module.exports = new LibraryToolsController()
+const _inst = new LibraryToolsController()
+_inst.detectGroups = asyncHandler(_inst.detectGroups.bind(_inst))
+_inst.mergeGroup = asyncHandler(_inst.mergeGroup.bind(_inst))
+_inst.detectDuplicates = asyncHandler(_inst.detectDuplicates.bind(_inst))
+_inst.convertFormat = asyncHandler(_inst.convertFormat.bind(_inst))
+_inst.convertForAll = asyncHandler(_inst.convertForAll.bind(_inst))
+_inst.conversionCheck = asyncHandler(_inst.conversionCheck.bind(_inst))
+_inst.extractMetadata = asyncHandler(_inst.extractMetadata.bind(_inst))
+module.exports = _inst

@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const Queue = require('better-queue')
@@ -155,4 +156,9 @@ class AgentController {
     }
   }
 }
-module.exports = new AgentController()
+const _inst = new AgentController()
+_inst.heartbeat = asyncHandler(_inst.heartbeat.bind(_inst))
+_inst.queueTask = asyncHandler(_inst.queueTask.bind(_inst))
+_inst.getTasks = asyncHandler(_inst.getTasks.bind(_inst))
+_inst.getAgents = asyncHandler(_inst.getAgents.bind(_inst))
+module.exports = _inst

@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const RecommendationManager = require('../managers/RecommendationManager')
@@ -70,4 +71,9 @@ class RecommendationController {
     res.json({ profile })
   }
 }
-module.exports = new RecommendationController()
+const _inst = new RecommendationController()
+_inst.getRecommendations = asyncHandler(_inst.getRecommendations.bind(_inst))
+_inst.getProfile = asyncHandler(_inst.getProfile.bind(_inst))
+_inst.rebuildProfile = asyncHandler(_inst.rebuildProfile.bind(_inst))
+_inst.updatePreferences = asyncHandler(_inst.updatePreferences.bind(_inst))
+module.exports = _inst

@@ -1,3 +1,4 @@
+const { asyncHandler } = require('../utils/asyncHandler')
 const { Request, Response } = require('express')
 const Logger = require('../Logger')
 const ReviewManager = require('../managers/ReviewManager')
@@ -28,4 +29,6 @@ class ReviewController {
     }
   }
 }
-module.exports = new ReviewController()
+const _inst = new ReviewController()
+_inst.getReviews = asyncHandler(_inst.getReviews.bind(_inst))
+module.exports = _inst
