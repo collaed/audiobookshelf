@@ -424,6 +424,8 @@ class ApiRouter {
 
     // AI / LLM
     this.router.get('/ai/status', AiController.status.bind(this))
+    this.router.get('/ai/config', AiController.getConfig.bind(this))
+    this.router.patch('/ai/config', AiController.updateConfig.bind(this))
     this.router.get('/ai/recap/:bookId', AiController.getRecap.bind(this))
     this.router.get('/ai/chapter-summary/:bookId/:chapterIndex', AiController.getChapterSummary.bind(this))
     this.router.post('/ai/search', AiController.smartSearch.bind(this))

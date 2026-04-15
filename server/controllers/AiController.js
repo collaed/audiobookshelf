@@ -8,8 +8,21 @@ class AiController {
 
   /** GET /api/ai/status */
   async status(req, res) {
+    const availability = await LlmProvider.isAvailable()
+    const config = LlmProvider.getStatus()
+    res.json({ ...availability, config })
+  }
+
+  /** GET /api/ai/config — get current LLM config (no secrets) */
+  async getConfig(req, res) {
+    res.json(LlmProvider.getStatus())
+  }
+
+  /** PATCH /api/ai/config — update LLM config */
+  async updateConfig(req, res) {
+    LlmProvider.configure(req.body)
     const status = await LlmProvider.isAvailable()
-    res.json(status)
+    res.json({ updated: true, ...status })
   }
 
   /** GET /api/ai/recap/:bookId */
