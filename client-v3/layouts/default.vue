@@ -17,6 +17,7 @@
 <script setup lang="ts">
 const links = [
   { to: '/', label: 'Dashboard' },
+  { to: '/library', label: 'Library' },
   { to: '/incoming', label: 'Incoming' },
   { to: '/discover', label: 'Discover' },
   { to: '/intelligence', label: 'Intelligence' },
