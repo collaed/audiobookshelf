@@ -53,6 +53,7 @@ const RatingImportController = require('../controllers/RatingImportController')
 const ModernizeController = require('../controllers/ModernizeController')
 const GutenbergController = require('../controllers/GutenbergController')
 const BookSummaryController = require('../controllers/BookSummaryController')
+const TextToAudiobookController = require('../controllers/TextToAudiobookController')
 
 class ApiRouter {
   constructor(Server) {
@@ -187,6 +188,10 @@ class ApiRouter {
     this.router.post('/items/:id/summary', LibraryItemController.middleware.bind(this), BookSummaryController.generate.bind(this))
     this.router.post('/items/:id/summary/audio', LibraryItemController.middleware.bind(this), BookSummaryController.audio.bind(this))
     this.router.get('/items/:id/summary/versions', LibraryItemController.middleware.bind(this), BookSummaryController.versions.bind(this))
+
+    // Ebook → Audiobook conversion
+    this.router.post('/items/:id/convert-to-audio', LibraryItemController.middleware.bind(this), TextToAudiobookController.convert.bind(this))
+    this.router.get('/items/:id/convert-to-audio/status', LibraryItemController.middleware.bind(this), TextToAudiobookController.status.bind(this))
 
     //
     // User Routes
