@@ -1,30 +1,68 @@
-version: '3.8'
 services:
   audiobookshelf:
-    build: .
+    build: ./build
+    container_name: audiobookshelf
     ports:
       - "13378:80"
     volumes:
-      - ./config:/config
-      - ./metadata:/metadata
-      - /path/to/audiobooks:/audiobooks
-      - /path/to/incoming:/incoming
+      - /opt/audiobookshelf/config:/config
+      - /opt/audiobookshelf/metadata:/metadata
+      - /opt/audiobookshelf/audiobooks:/audiobooks
+      - /opt/audiobookshelf/incoming:/incoming
+      # Cloud storage mounts (via rclone on host)
+      # - /mnt/gdrive/Audiobooks:/audiobooks-gdrive:ro
+      # - /mnt/dropbox/Books:/ebooks-dropbox:ro
     environment:
-      - AUDIOBOOKSHELF_UID=99
-      - AUDIOBOOKSHELF_GID=100
+      - TZ=Europe/Paris
+    networks:
+      - web
     restart: unless-stopped
 
-  agent:
-    build:
-      context: ./agent
-      dockerfile: Dockerfile.agent
-    volumes:
-      - /path/to/audiobooks:/audiobooks
-      - /path/to/incoming:/incoming
-    environment:
-      - ABS_SERVER=http://audiobookshelf:80
-      - AGENT_ID=home-agent
-      - INCOMING_PATH=/incoming
-    depends_on:
-      - audiobookshelf
-    restart: unless-stopped
+  # Optional: rclone as a sidecar for cloud storage
+  # Mounts Google Drive / Dropbox / OneDrive / S3 as local folders
+  # rclone:
+  #   image: rclone/rclone:latest
+  #   container_name: abs-rclone
+  #   cap_add:
+  #     - SYS_ADMIN
+  #   devices:
+  #     - /dev/fuse
+  #   security_opt:
+  #     - apparmor:unconfined
+  #   volumes:
+  #     - /opt/audiobookshelf/rclone:/config/rclone
+  #     - /opt/audiobookshelf/audiobooks:/data/audiobooks:shared
+  #     - /opt/audiobookshelf/rclone-cache:/cache
+  #   command: >
+  #     mount gdrive:Audiobooks /data/audiobooks
+  #     --allow-other
+  #     --vfs-cache-mode full
+  #     --vfs-cache-max-size 10G
+  #     --dir-cache-time 72h
+  #     --poll-interval 15m
+  #     --log-level INFO
+  #   restart: unless-stopped
+  #   networks:
+  #     - web
+
+  # Optional: agent for file scanning on remote storage
+  # agent:
+  #   build:
+  #     context: ./build/agent
+  #     dockerfile: Dockerfile.agent
+  #   volumes:
+  #     - /opt/audiobookshelf/audiobooks:/audiobooks
+  #     - /opt/audiobookshelf/incoming:/incoming
+  #   environment:
+  #     - ABS_SERVER=http://audiobookshelf:80
+  #     - AGENT_ID=home-agent
+  #     - INCOMING_PATH=/incoming
+  #   depends_on:
+  #     - audiobookshelf
+  #   restart: unless-stopped
+  #   networks:
+  #     - web
+
+networks:
+  web:
+    external: true
