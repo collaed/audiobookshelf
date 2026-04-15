@@ -25,3 +25,6 @@ sw.*
 tailwind.compiled.css
 tailwind.config.js
 *.pyc
+client-v3/node_modules
+client-v3/.nuxt
+client-v3/.output
