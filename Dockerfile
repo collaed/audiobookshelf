@@ -9,6 +9,15 @@ COPY /client /client
 RUN npm ci && npm cache clean --force
 RUN npm run generate
 
+### STAGE 0b: Build Vue 3 client ###
+FROM node:20-alpine AS build-client-v3
+
+WORKDIR /client-v3
+COPY /client-v3/package.json /client-v3/package-lock.json /client-v3/
+RUN npm ci && npm cache clean --force
+COPY /client-v3 /client-v3
+RUN npm run generate
+
 ### STAGE 1: Build server ###
 FROM node:20-alpine AS build-server
 
@@ -56,6 +65,7 @@ WORKDIR /app
 
 # Copy compiled frontend and server from build stages
 COPY --from=build-client /client/dist /app/client/dist
+COPY --from=build-client-v3 /client-v3/.output/public /app/client-v3/dist
 COPY --from=build-server /server /app
 COPY --from=build-server ${NUSQLITE3_PATH} ${NUSQLITE3_PATH}
 

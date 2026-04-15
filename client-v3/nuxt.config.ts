@@ -2,9 +2,13 @@ export default defineNuxtConfig({
   modules: ['@nuxtjs/tailwindcss'],
   ssr: false,
   devtools: { enabled: false },
+  app: {
+    baseURL: '/v3/',
+    head: { title: 'Audiobookshelf' }
+  },
   runtimeConfig: {
     public: {
-      apiBase: process.env.ABS_API_URL || '/api'
+      apiBase: '/api'
     }
   },
   routeRules: {

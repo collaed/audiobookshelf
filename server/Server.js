@@ -378,6 +378,14 @@ class Server {
       const distPath = Path.join(global.appRoot, '/client/dist')
       router.use(express.static(distPath))
 
+      // Vue 3 client at /v3/
+      const v3DistPath = Path.join(global.appRoot, '/client-v3/dist')
+      if (require('./libs/fsExtra').pathExistsSync(v3DistPath)) {
+        router.use('/v3', express.static(v3DistPath))
+        router.get('/v3/*', (req, res) => res.sendFile(Path.join(v3DistPath, 'index.html')))
+        Logger.info(`[Server] Vue 3 client available at /v3/`)
+      }
+
       // Client dynamic routes
       const dynamicRoutes = [
         '/item/:id',
