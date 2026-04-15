@@ -47,6 +47,7 @@ const SyncController = require('../controllers/SyncController')
 const LanguageLearningController = require('../controllers/LanguageLearningController')
 const AiController = require('../controllers/AiController')
 const OcrController = require('../controllers/OcrController')
+const AutoTagController = require('../controllers/AutoTagController')
 
 class ApiRouter {
   constructor(Server) {
@@ -151,6 +152,11 @@ class ApiRouter {
     this.router.get('/ocr/status', OcrController.status.bind(this))
     this.router.post('/items/:id/ocr', LibraryItemController.middleware.bind(this), OcrController.ocrItem.bind(this))
     this.router.post('/items/:id/ocr/text', LibraryItemController.middleware.bind(this), OcrController.extractText.bind(this))
+
+    // Auto-tagging
+    this.router.post('/items/:id/auto-tag', LibraryItemController.middleware.bind(this), AutoTagController.tagItem.bind(this))
+    this.router.post('/items/:id/auto-tag/apply', LibraryItemController.middleware.bind(this), AutoTagController.tagAndApply.bind(this))
+    this.router.post('/libraries/:id/auto-tag', AutoTagController.tagLibrary.bind(this))
 
     //
     // User Routes
