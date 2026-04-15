@@ -44,6 +44,7 @@ class IncomingController {
    */
   async confirm(req, res) {
     const { libraryId, libraryFolderId } = req.body
+    if (!libraryId || !libraryFolderId) return res.status(400).json({ error: 'libraryId and libraryFolderId are required' })
     const item = await IncomingManager.confirmItem(req.params.id, libraryId, libraryFolderId)
     if (!item) return res.sendStatus(404)
     res.json({ item })

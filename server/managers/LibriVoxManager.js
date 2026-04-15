@@ -119,9 +119,7 @@ class LibriVoxManager {
         if (error) reject(error)
         else resolve()
       })
-    })
-
-    await fs.unlink(tmpZip).catch(() => {})
+    }).finally(() => fs.unlink(tmpZip).catch(() => {}))
 
     const allFiles = await fs.readdir(destDir)
     const files = allFiles.filter((f) => f.toLowerCase().endsWith('.mp3'))
