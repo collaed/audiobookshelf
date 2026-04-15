@@ -242,6 +242,28 @@ POST /api/tools/groups/{key}/merge  { "libraryFolderId": "..." }
 
 ### 11.1 Configure your LLM backend
 
+**Option A: L'Intello (recommended)**
+Set env vars: `LLM_PROVIDER=airouter`, `INTELLO_URL=http://intello:8000`, `INTELLO_TOKEN=...`
+
+**Option B: Via the UI**
+```
+PATCH /api/ai/config
+{ "provider": "airouter", "baseUrl": "http://intello:8000", "token": "..." }
+```
+
+**Option C: Ollama (local, free)**
+`LLM_PROVIDER=ollama`, `OLLAMA_URL=http://localhost:11434`
+
+### 11.2 Auto-tag your library
+```
+POST /api/items/{id}/auto-tag          # preview tags for one book
+POST /api/items/{id}/auto-tag/apply    # generate + save
+POST /api/libraries/{id}/auto-tag      # batch tag all untagged books
+```
+Samples 5 points in the text (beginning, 3 middle, end) for accurate genre/mood/theme classification.
+
+### 11.1 Configure your LLM backend
+
 In ABS settings or via API:
 ```
 PATCH /api/ai/config
@@ -327,6 +349,30 @@ sudo ./scripts/setup-cloud-storage.sh
 ```
 
 Choose your provider, authorize, and a mount appears as a local folder. Add it as a Docker volume and create an ABS library pointing to it.
+
+---
+
+## Level 16: Podcast Drip Feed (5 minutes)
+
+*Publish a book as a podcast — one chapter per day.*
+
+```
+POST /api/items/{id}/podcast-feed
+{
+  "schedule": "daily",
+  "releaseTime": "08:00",
+  "startDate": "2026-04-15"
+}
+```
+
+Returns an RSS feed URL. Subscribe in Apple Podcasts, Overcast, Pocket Casts, or any podcast app. Chapters release on schedule.
+
+Schedules: `daily`, `weekdays`, `weekly`, `twice-weekly`
+
+Check the schedule:
+```
+GET /api/feeds/{id}/schedule
+```
 
 ---
 

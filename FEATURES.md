@@ -418,3 +418,75 @@ This installs Python dependencies and registers the agent as a background servic
 | | `/api/ai/ask/:bookId` | POST |
 | | `/api/ai/character/:bookId` | POST |
 | | `/api/ai/check-alignment` | POST |
+| | `/api/ai/config` | GET |
+| | `/api/ai/config` | PATCH |
+| **Auto-Tag** | `/api/items/:id/auto-tag` | POST |
+| | `/api/items/:id/auto-tag/apply` | POST |
+| | `/api/libraries/:id/auto-tag` | POST |
+| **OCR** | `/api/ocr/status` | GET |
+| | `/api/items/:id/ocr` | POST |
+| | `/api/items/:id/ocr/text` | POST |
+| **Podcast Feed** | `/api/items/:id/podcast-feed` | POST |
+| | `/api/feeds/:id/schedule` | GET |
+
+---
+
+### Auto-Tagging (LLM)
+
+Samples 5 points in the book text (beginning, 3 middle samples at 25%/45%/65%, end) and sends to the LLM for structured analysis. Returns: genres, subgenres, mood, themes, pace, target audience, content warnings, setting, similar books, one-liner description.
+
+```
+POST /api/items/:id/auto-tag          # preview tags
+POST /api/items/:id/auto-tag/apply    # generate + save to metadata
+POST /api/libraries/:id/auto-tag      # batch tag all untagged books
+```
+
+### OCR (via L'Intello)
+
+Makes scanned PDFs searchable using Tesseract + OCRmyPDF. Async jobs for large books.
+
+```
+GET  /api/ocr/status                  # check OCR service availability
+POST /api/items/:id/ocr               # create searchable PDF
+POST /api/items/:id/ocr/text          # extract text only
+```
+
+Requires L'Intello backend with OCR enabled.
+
+### Scheduled Podcast Feeds
+
+Publish audiobook chapters as a podcast with a drip schedule — one chapter per day (or weekdays, weekly, twice-weekly). Subscribe in any podcast app.
+
+```
+POST /api/items/:id/podcast-feed      # create scheduled feed
+  { "schedule": "daily", "releaseTime": "08:00", "startDate": "2026-04-15" }
+GET  /api/feeds/:id/schedule          # view release schedule
+```
+
+### Cloud Storage
+
+Google Drive, Dropbox, OneDrive, S3, and 70+ other backends via rclone FUSE mounts. ABS sees a normal folder — zero code changes needed.
+
+```bash
+sudo ./scripts/setup-cloud-storage.sh   # interactive setup
+```
+
+### Vue 3 Frontend
+
+Full Vue 3 / Nuxt 3 client at `client-v3/` with all 238 components:
+- 42 legacy pages migrated from Vue 2 (Options API, works unchanged)
+- 7 new pages for extended features (Composition API)
+- 184 components migrated
+- Vuex 4 store (same API as Vuex 3)
+- All plugins converted to Nuxt 3 format
+- `mitt` event bus replacing Vue 2 event bus
+- Build: `cd client-v3 && npm install && npm run build`
+
+### Codebase Stats
+
+```
+Upstream code modified:  0.14% (132 lines in 3 files)
+New code added:          66,259 lines across 415 files
+Tests:                   468 (mocha + pytest + playwright)
+API endpoints:           55+ new
+```
