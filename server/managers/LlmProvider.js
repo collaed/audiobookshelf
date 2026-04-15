@@ -20,9 +20,9 @@ class LlmProvider {
     this.provider = process.env.LLM_PROVIDER || 'disabled' // airouter | ollama | openai | custom | disabled
     this.config = {
       airouter: {
-        baseUrl: process.env.AIROUTER_URL || 'http://airouter:8000',
-        token: process.env.AIROUTER_TOKEN || '',
-        model: 'auto', // airouter picks the best
+        baseUrl: process.env.INTELLO_URL || process.env.AIROUTER_URL || 'http://intello:8000',
+        token: process.env.INTELLO_TOKEN || process.env.AIROUTER_TOKEN || '',
+        model: 'auto', // intello picks the best
       },
       ollama: {
         baseUrl: process.env.OLLAMA_URL || 'http://localhost:11434',

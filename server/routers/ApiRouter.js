@@ -46,6 +46,7 @@ const LibraryToolsController = require('../controllers/LibraryToolsController')
 const SyncController = require('../controllers/SyncController')
 const LanguageLearningController = require('../controllers/LanguageLearningController')
 const AiController = require('../controllers/AiController')
+const OcrController = require('../controllers/OcrController')
 
 class ApiRouter {
   constructor(Server) {
@@ -145,6 +146,11 @@ class ApiRouter {
     this.router.post('/items/:id/send-to-kindle', LibraryItemController.middleware.bind(this), DeliveryController.sendToKindle.bind(this))
     this.router.post('/items/:id/send-to-device', LibraryItemController.middleware.bind(this), DeliveryController.sendToDevice.bind(this))
     this.router.get('/items/:id/mobile-links', LibraryItemController.middleware.bind(this), DeliveryController.getMobileLinks.bind(this))
+
+    // OCR
+    this.router.get('/ocr/status', OcrController.status.bind(this))
+    this.router.post('/items/:id/ocr', LibraryItemController.middleware.bind(this), OcrController.ocrItem.bind(this))
+    this.router.post('/items/:id/ocr/text', LibraryItemController.middleware.bind(this), OcrController.extractText.bind(this))
 
     //
     // User Routes
