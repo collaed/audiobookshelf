@@ -49,6 +49,9 @@ const AiController = require('../controllers/AiController')
 const OcrController = require('../controllers/OcrController')
 const AutoTagController = require('../controllers/AutoTagController')
 const ScheduledFeedController = require('../controllers/ScheduledFeedController')
+const RatingImportController = require('../controllers/RatingImportController')
+const ModernizeController = require('../controllers/ModernizeController')
+const GutenbergController = require('../controllers/GutenbergController')
 
 class ApiRouter {
   constructor(Server) {
@@ -162,6 +165,22 @@ class ApiRouter {
     // Scheduled podcast feeds
     this.router.post('/items/:id/podcast-feed', LibraryItemController.middleware.bind(this), ScheduledFeedController.createFeed.bind(this))
     this.router.get('/feeds/:id/schedule', ScheduledFeedController.getFeedSchedule.bind(this))
+
+    // Rating import
+    this.router.post('/ratings/import/goodreads', RatingImportController.importGoodreads.bind(this))
+    this.router.post('/ratings/import/openlibrary', RatingImportController.importOpenLibrary.bind(this))
+    this.router.get('/ratings/import/status', RatingImportController.getImportStatus.bind(this))
+
+    // Gutenberg (free ebooks)
+    this.router.get('/gutenberg/search', GutenbergController.search.bind(this))
+    this.router.get('/gutenberg/browse', GutenbergController.browse.bind(this))
+    this.router.get('/gutenberg/:id', GutenbergController.getDetails.bind(this))
+    this.router.post('/gutenberg/:id/download', GutenbergController.download.bind(this))
+
+    // Modernize
+    this.router.post('/items/:id/modernize/preview', LibraryItemController.middleware.bind(this), ModernizeController.preview.bind(this))
+    this.router.post('/items/:id/modernize', LibraryItemController.middleware.bind(this), ModernizeController.modernize.bind(this))
+    this.router.get('/items/:id/modernize/versions', LibraryItemController.middleware.bind(this), ModernizeController.versions.bind(this))
 
     //
     // User Routes
