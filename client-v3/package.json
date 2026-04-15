@@ -9,8 +9,14 @@
     "preview": "nuxt preview"
   },
   "dependencies": {
+    "cron-parser": "4.9.0",
+    "date-fns": "4.1.0",
+    "mitt": "3.0.1",
+    "nanoid": "5.1.5",
     "nuxt": "^3.16.0",
-    "vue": "^3.5.0"
+    "vue": "^3.5.0",
+    "vuex": "^4.1.0",
+    "vue-toastification": "2.0.0-rc.5"
   },
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.12.0"
