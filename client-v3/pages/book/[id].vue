@@ -1,148 +1,251 @@
 <script setup>
-const id = useRoute().params.id
 const { get, post } = useApi()
+const id = useRoute().params.id
 
-const tab = ref('Reviews')
-const tabs = ['Reviews', 'AI', 'Tags', 'Send', 'Podcast']
+const tab = ref('overview')
+const loading = ref(false)
 
-// Reviews
+// Overview
 const reviews = ref(null)
-const loadReviews = async () => { reviews.value = await get(`/items/${id}/reviews`) }
+const convStatus = ref(null)
 
 // AI
-const recap = ref(null)
-const chatQ = ref('')
-const chatA = ref(null)
-const charName = ref('')
-const charInfo = ref(null)
-const getRecap = async () => { recap.value = await get(`/ai/recap/${id}`) }
-const askQuestion = async () => { chatA.value = await post(`/ai/ask/${id}`, { question: chatQ.value }) }
-const lookupChar = async () => { charInfo.value = await post(`/ai/character/${id}`, { name: charName.value }) }
+const recap = ref(''); const recapLoading = ref(false)
+const chatQ = ref(''); const chatA = ref(''); const chatLoading = ref(false)
+const charName = ref(''); const charInfo = ref('')
 
 // Tags
-const tagPreview = ref(null)
-const tagApplied = ref(false)
+const tagPreview = ref(null); const tagApplied = ref(false)
+
+// Summary
+const summary = ref(null); const summaryStyle = ref('executive'); const summaryLength = ref('medium')
+const audioSummary = ref(null)
+
+// Modernize
+const modernPreview = ref(null); const modernStyle = ref('modern literary')
+const modernFull = ref(null)
+
+// Send
+const kindleEmail = ref(''); const deviceName = ref('')
+const mobileLinks = ref(null)
+
+// Podcast
+const feedSchedule = ref('daily'); const feedTime = ref('08:00'); const feedStart = ref('')
+const feedResult = ref(null)
+
+// Convert
+const ttsLang = ref('en'); const converting = ref(false); const convertResult = ref(null)
+
+// OCR
+const ocrLang = ref('eng'); const ocrResult = ref(null); const ocrRunning = ref(false)
+
+onMounted(async () => {
+  convStatus.value = await get(`/items/${id}/convert-to-audio/status`).catch(() => null)
+})
+
+// Overview actions
+const loadReviews = async () => { loading.value = true; reviews.value = await get(`/items/${id}/reviews`); loading.value = false }
+
+// AI actions
+const getRecap = async () => { recapLoading.value = true; recap.value = (await get(`/ai/recap/${id}`)).recap; recapLoading.value = false }
+const askQuestion = async () => { chatLoading.value = true; chatA.value = (await post(`/ai/ask/${id}`, { question: chatQ.value })).answer; chatLoading.value = false }
+const lookupChar = async () => { charInfo.value = (await post(`/ai/character/${id}`, { name: charName.value })).answer }
+
+// Tag actions
 const generateTags = async () => { tagPreview.value = await post(`/items/${id}/auto-tag`) }
 const applyTags = async () => { await post(`/items/${id}/auto-tag/apply`); tagApplied.value = true }
 
-// Send
-const kindleEmail = ref('')
-const deviceName = ref('')
-const mobileLinks = ref(null)
+// Summary actions
+const genSummary = async () => { loading.value = true; summary.value = await post(`/items/${id}/summary`, { style: summaryStyle.value, length: summaryLength.value }); loading.value = false }
+const genAudioSummary = async () => { audioSummary.value = await post(`/items/${id}/summary/audio`, { style: summaryStyle.value }) }
+
+// Modernize actions
+const previewModern = async () => { loading.value = true; modernPreview.value = await post(`/items/${id}/modernize/preview`, { style: modernStyle.value }); loading.value = false }
+const fullModern = async () => { loading.value = true; modernFull.value = await post(`/items/${id}/modernize`, { style: modernStyle.value }); loading.value = false }
+
+// Send actions
 const sendKindle = async () => { await post(`/items/${id}/send-to-kindle`, { email: kindleEmail.value }) }
 const sendDevice = async () => { await post(`/items/${id}/send-to-device`, { deviceName: deviceName.value }) }
 const loadLinks = async () => { mobileLinks.value = await get(`/items/${id}/mobile-links`) }
 
 // Podcast
-const schedule = ref('daily')
-const releaseTime = ref('08:00')
-const startDate = ref('')
-const feedResult = ref(null)
-const createFeed = async () => {
-  feedResult.value = await post(`/items/${id}/podcast-feed`, {
-    schedule: schedule.value, releaseTime: releaseTime.value, startDate: startDate.value
-  })
-}
-const copyUrl = () => { navigator.clipboard.writeText(feedResult.value?.url) }
+const createFeed = async () => { feedResult.value = await post(`/items/${id}/podcast-feed`, { schedule: feedSchedule.value, releaseTime: feedTime.value, startDate: feedStart.value }) }
 
-onMounted(loadReviews)
+// Convert to audio
+const convertToAudio = async () => { converting.value = true; convertResult.value = await post(`/items/${id}/convert-to-audio`, { language: ttsLang.value }); converting.value = false }
+
+// OCR
+const runOcr = async () => { ocrRunning.value = true; ocrResult.value = await post(`/items/${id}/ocr`, { language: ocrLang.value }); ocrRunning.value = false }
+
+const tabs = [
+  { id: 'overview', label: '⭐ Overview' },
+  { id: 'ai', label: '🤖 AI' },
+  { id: 'summary', label: '📝 Summary' },
+  { id: 'tags', label: '🏷️ Tags' },
+  { id: 'modernize', label: '✨ Modernize' },
+  { id: 'convert', label: '🔄 Convert' },
+  { id: 'send', label: '📤 Send' },
+  { id: 'podcast', label: '🎙️ Podcast' },
+]
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#1e272e] text-[#dfe6e9] p-6">
-    <h1 class="text-2xl font-bold mb-4">Book {{ id }}</h1>
-
-    <div class="flex gap-2 mb-6">
-      <button v-for="t in tabs" :key="t" @click="tab = t; t === 'Reviews' && loadReviews()"
-        :class="['px-4 py-2 rounded', tab === t ? 'bg-[#6c5ce7] text-white' : 'bg-[#2d3436] text-[#636e72]']">
-        {{ t }}
-      </button>
+  <div>
+    <div class="flex items-center gap-2 mb-4">
+      <NuxtLink to="/library" class="text-[#636e72] hover:text-white">← Library</NuxtLink>
+      <h1 class="text-xl font-bold">Book Details</h1>
     </div>
 
-    <!-- Reviews -->
-    <div v-if="tab === 'Reviews'">
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-6 flex-wrap">
+      <button v-for="t in tabs" :key="t.id" @click="tab = t.id"
+        :class="tab === t.id ? 'bg-[#6c5ce7] text-white' : 'bg-[#2d3436] text-[#636e72] hover:text-white'"
+        class="px-3 py-1.5 rounded text-sm transition">{{ t.label }}</button>
+    </div>
+
+    <!-- Overview -->
+    <div v-if="tab === 'overview'" class="space-y-4">
+      <div class="flex gap-2">
+        <button @click="loadReviews" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Load Reviews</button>
+        <span v-if="convStatus?.canConvert" class="bg-yellow-600/20 text-yellow-400 px-3 py-2 rounded text-sm">📖 Ebook only — can convert to audio</span>
+        <span v-if="convStatus?.hasAudio && convStatus?.hasEbook" class="bg-green-600/20 text-green-400 px-3 py-2 rounded text-sm">🎧📖 Both formats available</span>
+      </div>
       <div v-if="reviews" class="space-y-3">
-        <div v-for="r in reviews" :key="r.source" class="bg-[#2d3436] p-4 rounded">
-          <div class="flex items-center gap-2">
-            <span class="font-semibold">{{ r.source }}</span>
-            <span class="text-yellow-400">{{ '★'.repeat(Math.round(r.rating)) }}{{ '☆'.repeat(5 - Math.round(r.rating)) }}</span>
-            <span class="text-[#636e72]">{{ r.rating }}/5</span>
-          </div>
-          <p class="text-sm text-[#636e72] mt-1">{{ r.excerpt }}</p>
+        <p class="text-lg">Average: <span class="text-[#6c5ce7] font-bold">{{ reviews.avgRating }}/5</span> ({{ reviews.totalRatings }} ratings)</p>
+        <div v-for="s in reviews.sources" :key="s.source" class="bg-[#2d3436] p-3 rounded">
+          <div class="flex justify-between"><span class="font-medium">{{ s.source }}</span><span>{{ '★'.repeat(Math.round(s.rating)) }}{{ '☆'.repeat(5 - Math.round(s.rating)) }} ({{ s.ratingCount }})</span></div>
+          <p v-for="r in (s.reviews || []).slice(0, 2)" :key="r" class="text-sm text-[#636e72] mt-1 italic">"{{ r.slice(0, 200) }}"</p>
         </div>
       </div>
-      <p v-else class="text-[#636e72]">Loading reviews...</p>
     </div>
 
     <!-- AI -->
-    <div v-if="tab === 'AI'" class="space-y-4">
-      <div>
-        <button @click="getRecap" class="bg-[#6c5ce7] px-4 py-2 rounded">What happened so far?</button>
-        <p v-if="recap" class="bg-[#2d3436] p-4 rounded mt-2">{{ recap.recap || recap }}</p>
+    <div v-if="tab === 'ai'" class="space-y-4">
+      <div class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-2">📖 What happened so far?</h3>
+        <button @click="getRecap" :disabled="recapLoading" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">{{ recapLoading ? 'Thinking...' : 'Get Recap' }}</button>
+        <p v-if="recap" class="mt-3 whitespace-pre-wrap text-sm">{{ recap }}</p>
       </div>
-      <div class="flex gap-2">
-        <input v-model="chatQ" placeholder="Ask a question..." class="flex-1 bg-[#2d3436] text-[#dfe6e9] px-3 py-2 rounded" />
-        <button @click="askQuestion" class="bg-[#6c5ce7] px-4 py-2 rounded">Ask</button>
+      <div class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-2">💬 Ask about this book</h3>
+        <div class="flex gap-2"><input v-model="chatQ" placeholder="Why did the character...?" class="flex-1 bg-[#1e272e] px-3 py-2 rounded text-sm" @keyup.enter="askQuestion" /><button @click="askQuestion" :disabled="chatLoading" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Ask</button></div>
+        <p v-if="chatA" class="mt-3 text-sm whitespace-pre-wrap">{{ chatA }}</p>
       </div>
-      <p v-if="chatA" class="bg-[#2d3436] p-4 rounded">{{ chatA.answer || chatA }}</p>
-      <div class="flex gap-2">
-        <input v-model="charName" placeholder="Character name..." class="flex-1 bg-[#2d3436] text-[#dfe6e9] px-3 py-2 rounded" />
-        <button @click="lookupChar" class="bg-[#6c5ce7] px-4 py-2 rounded">Lookup</button>
+      <div class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-2">👤 Character lookup</h3>
+        <div class="flex gap-2"><input v-model="charName" placeholder="Character name..." class="flex-1 bg-[#1e272e] px-3 py-2 rounded text-sm" /><button @click="lookupChar" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Lookup</button></div>
+        <p v-if="charInfo" class="mt-3 text-sm whitespace-pre-wrap">{{ charInfo }}</p>
       </div>
-      <p v-if="charInfo" class="bg-[#2d3436] p-4 rounded">{{ charInfo.info || charInfo }}</p>
+    </div>
+
+    <!-- Summary -->
+    <div v-if="tab === 'summary'" class="space-y-4">
+      <div class="flex gap-3 items-center">
+        <select v-model="summaryStyle" class="bg-[#2d3436] px-3 py-2 rounded text-sm"><option value="executive">Executive</option><option value="casual">Casual (Blinkist)</option><option value="academic">Academic</option></select>
+        <select v-model="summaryLength" class="bg-[#2d3436] px-3 py-2 rounded text-sm"><option value="short">Short (5 min)</option><option value="medium">Medium (10 min)</option><option value="long">Long (15 min)</option></select>
+        <button @click="genSummary" :disabled="loading" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">{{ loading ? 'Generating...' : 'Generate Summary' }}</button>
+        <button @click="genAudioSummary" class="bg-[#2d3436] border border-[#6c5ce7] px-4 py-2 rounded text-sm">🔊 Audio Version</button>
+      </div>
+      <div v-if="summary" class="bg-[#2d3436] p-4 rounded space-y-3">
+        <p class="text-lg font-bold">{{ summary.oneLiner }}</p>
+        <p class="text-[#6c5ce7] font-medium">💡 {{ summary.keyInsight }}</p>
+        <p class="whitespace-pre-wrap text-sm">{{ summary.summary }}</p>
+        <div v-if="summary.keyPoints?.length"><h4 class="font-medium mt-2">Key Points:</h4><ul class="list-disc pl-5 text-sm"><li v-for="p in summary.keyPoints" :key="p">{{ p }}</li></ul></div>
+        <div v-if="summary.quotes?.length"><h4 class="font-medium mt-2">Notable Quotes:</h4><p v-for="q in summary.quotes" :key="q" class="text-sm italic text-[#636e72]">"{{ q }}"</p></div>
+      </div>
+      <div v-if="audioSummary" class="bg-[#2d3436] p-3 rounded"><p class="text-sm">🔊 Audio summary saved: {{ audioSummary.audioPath }}</p></div>
     </div>
 
     <!-- Tags -->
-    <div v-if="tab === 'Tags'" class="space-y-4">
-      <button @click="generateTags" class="bg-[#6c5ce7] px-4 py-2 rounded">Generate Tags</button>
+    <div v-if="tab === 'tags'" class="space-y-4">
+      <button @click="generateTags" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">🏷️ Generate Tags</button>
       <div v-if="tagPreview" class="bg-[#2d3436] p-4 rounded space-y-2">
-        <div v-for="key in ['genres','mood','themes','pace','contentWarnings','similar','oneLiner']" :key="key">
-          <span class="text-[#636e72] text-sm">{{ key }}:</span>
-          <span class="ml-2">{{ Array.isArray(tagPreview[key]) ? tagPreview[key].join(', ') : tagPreview[key] }}</span>
-        </div>
-        <button @click="applyTags" class="bg-[#6c5ce7] px-4 py-2 rounded mt-2">Apply Tags</button>
-        <p v-if="tagApplied" class="text-green-400 text-sm">Tags applied!</p>
+        <div class="flex flex-wrap gap-2"><span v-for="g in tagPreview.genres" :key="g" class="bg-[#6c5ce7]/20 text-[#6c5ce7] px-2 py-1 rounded text-xs">{{ g }}</span></div>
+        <p v-if="tagPreview.mood"><strong>Mood:</strong> {{ tagPreview.mood?.join(', ') }}</p>
+        <p v-if="tagPreview.themes"><strong>Themes:</strong> {{ tagPreview.themes?.join(', ') }}</p>
+        <p v-if="tagPreview.pace"><strong>Pace:</strong> {{ tagPreview.pace }}</p>
+        <p v-if="tagPreview.contentWarnings?.length"><strong>⚠️ Content:</strong> {{ tagPreview.contentWarnings.join(', ') }}</p>
+        <p v-if="tagPreview.oneLiner" class="italic">"{{ tagPreview.oneLiner }}"</p>
+        <p v-if="tagPreview.similar"><strong>Similar:</strong> {{ tagPreview.similar?.join(', ') }}</p>
+        <button v-if="!tagApplied" @click="applyTags" class="bg-green-700 px-4 py-2 rounded text-sm mt-2">✅ Apply Tags</button>
+        <p v-else class="text-green-400 text-sm">✅ Tags applied!</p>
       </div>
     </div>
 
+    <!-- Modernize -->
+    <div v-if="tab === 'modernize'" class="space-y-4">
+      <div class="flex gap-3 items-center">
+        <select v-model="modernStyle" class="bg-[#2d3436] px-3 py-2 rounded text-sm"><option value="modern literary">Modern Literary</option><option value="casual readable">Casual Readable</option><option value="young adult">Young Adult</option><option value="simplified">Simplified</option></select>
+        <button @click="previewModern" :disabled="loading" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Preview Chapter 1</button>
+        <button @click="fullModern" :disabled="loading" class="bg-[#2d3436] border border-[#6c5ce7] px-4 py-2 rounded text-sm">Modernize Full Book</button>
+      </div>
+      <div v-if="modernPreview" class="bg-[#2d3436] p-4 rounded">
+        <h4 class="font-medium mb-2">Original:</h4>
+        <p class="text-sm text-[#636e72] mb-4">{{ modernPreview.original?.slice(0, 500) }}...</p>
+        <h4 class="font-medium mb-2">Modernized:</h4>
+        <p class="text-sm">{{ modernPreview.modernized?.slice(0, 500) }}...</p>
+      </div>
+      <div v-if="modernFull" class="bg-[#2d3436] p-3 rounded"><p class="text-sm text-green-400">✅ Modernized version saved ({{ modernFull.chunksProcessed }} chunks)</p></div>
+    </div>
+
+    <!-- Convert -->
+    <div v-if="tab === 'convert'" class="space-y-4">
+      <div v-if="convStatus?.canConvert" class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-3">📖 → 🎧 Convert Ebook to Audiobook</h3>
+        <p class="text-sm text-[#636e72] mb-3">Generate a TTS audiobook from this ebook. Requires Piper TTS.</p>
+        <div class="flex gap-3 items-center">
+          <select v-model="ttsLang" class="bg-[#1e272e] px-3 py-2 rounded text-sm"><option value="en">English</option><option value="fr">French</option><option value="de">German</option><option value="es">Spanish</option><option value="it">Italian</option></select>
+          <button @click="convertToAudio" :disabled="converting" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">{{ converting ? 'Converting...' : '🎧 Convert to Audiobook' }}</button>
+        </div>
+        <div v-if="convertResult" class="mt-3 text-sm text-green-400">✅ {{ convertResult.successfulChapters }}/{{ convertResult.totalChapters }} chapters generated ({{ Math.round(convertResult.totalDuration / 60) }} min)</div>
+      </div>
+      <div v-if="convStatus?.hasEbook" class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-3">📄 OCR (Scanned PDF)</h3>
+        <p class="text-sm text-[#636e72] mb-3">Make a scanned PDF searchable. Required before converting to audio.</p>
+        <div class="flex gap-3 items-center">
+          <select v-model="ocrLang" class="bg-[#1e272e] px-3 py-2 rounded text-sm"><option value="eng">English</option><option value="fra">French</option><option value="deu">German</option><option value="spa">Spanish</option></select>
+          <button @click="runOcr" :disabled="ocrRunning" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">{{ ocrRunning ? 'Processing...' : '🔍 Run OCR' }}</button>
+        </div>
+        <div v-if="ocrResult" class="mt-3 text-sm text-green-400">✅ OCR complete</div>
+      </div>
+      <div v-if="!convStatus?.canConvert && convStatus?.hasAudio" class="bg-[#2d3436] p-3 rounded text-sm text-[#636e72]">This book already has audio files.</div>
+    </div>
+
     <!-- Send -->
-    <div v-if="tab === 'Send'" class="space-y-4">
-      <div class="flex gap-2">
-        <input v-model="kindleEmail" placeholder="Kindle email..." class="flex-1 bg-[#2d3436] text-[#dfe6e9] px-3 py-2 rounded" />
-        <button @click="sendKindle" class="bg-[#6c5ce7] px-4 py-2 rounded">Send to Kindle</button>
+    <div v-if="tab === 'send'" class="space-y-4">
+      <div class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-3">📱 Send to Kindle</h3>
+        <div class="flex gap-2"><input v-model="kindleEmail" placeholder="you@kindle.com" class="flex-1 bg-[#1e272e] px-3 py-2 rounded text-sm" /><button @click="sendKindle" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Send</button></div>
       </div>
-      <div class="flex gap-2">
-        <input v-model="deviceName" placeholder="Device name..." class="flex-1 bg-[#2d3436] text-[#dfe6e9] px-3 py-2 rounded" />
-        <button @click="sendDevice" class="bg-[#6c5ce7] px-4 py-2 rounded">Send to Device</button>
+      <div class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-3">📲 Send to Device</h3>
+        <div class="flex gap-2"><input v-model="deviceName" placeholder="Device name" class="flex-1 bg-[#1e272e] px-3 py-2 rounded text-sm" /><button @click="sendDevice" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Send</button></div>
       </div>
-      <button @click="loadLinks" class="bg-[#6c5ce7] px-4 py-2 rounded">Mobile Links</button>
-      <div v-if="mobileLinks" class="bg-[#2d3436] p-4 rounded">
-        <a v-for="l in mobileLinks" :key="l.url" :href="l.url" class="block text-[#6c5ce7] underline">{{ l.label || l.url }}</a>
+      <div class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-3">🔗 Mobile Links</h3>
+        <button @click="loadLinks" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm mb-2">Get Links</button>
+        <div v-if="mobileLinks" class="text-sm space-y-1">
+          <p v-for="(url, key) in mobileLinks" :key="key"><span class="text-[#636e72]">{{ key }}:</span> <a :href="url" class="text-[#6c5ce7] underline">{{ url }}</a></p>
+        </div>
       </div>
     </div>
 
     <!-- Podcast -->
-    <div v-if="tab === 'Podcast'" class="space-y-4">
-      <div class="flex gap-4 items-end">
-        <label class="space-y-1">
-          <span class="text-sm text-[#636e72]">Schedule</span>
-          <select v-model="schedule" class="block bg-[#2d3436] text-[#dfe6e9] px-3 py-2 rounded">
-            <option>daily</option><option>weekdays</option><option>weekly</option>
-          </select>
-        </label>
-        <label class="space-y-1">
-          <span class="text-sm text-[#636e72]">Time</span>
-          <input v-model="releaseTime" type="time" class="block bg-[#2d3436] text-[#dfe6e9] px-3 py-2 rounded" />
-        </label>
-        <label class="space-y-1">
-          <span class="text-sm text-[#636e72]">Start Date</span>
-          <input v-model="startDate" type="date" class="block bg-[#2d3436] text-[#dfe6e9] px-3 py-2 rounded" />
-        </label>
-      </div>
-      <button @click="createFeed" class="bg-[#6c5ce7] px-4 py-2 rounded">Create Feed</button>
-      <div v-if="feedResult" class="bg-[#2d3436] p-4 rounded flex items-center gap-2">
-        <code class="flex-1 text-sm break-all">{{ feedResult.url }}</code>
-        <button @click="copyUrl" class="bg-[#6c5ce7] px-3 py-1 rounded text-sm">Copy</button>
+    <div v-if="tab === 'podcast'" class="space-y-4">
+      <div class="bg-[#2d3436] p-4 rounded">
+        <h3 class="font-medium mb-3">🎙️ Publish as Podcast (drip feed)</h3>
+        <p class="text-sm text-[#636e72] mb-3">Release one chapter per day in any podcast app.</p>
+        <div class="flex gap-3 items-center flex-wrap">
+          <select v-model="feedSchedule" class="bg-[#1e272e] px-3 py-2 rounded text-sm"><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option></select>
+          <input v-model="feedTime" type="time" class="bg-[#1e272e] px-3 py-2 rounded text-sm" />
+          <input v-model="feedStart" type="date" class="bg-[#1e272e] px-3 py-2 rounded text-sm" />
+          <button @click="createFeed" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Create Feed</button>
+        </div>
+        <div v-if="feedResult" class="mt-3 bg-[#1e272e] p-3 rounded">
+          <p class="text-sm font-medium">Feed URL (copy to podcast app):</p>
+          <code class="text-[#6c5ce7] text-sm break-all">{{ feedResult.feedUrl }}</code>
+          <p class="text-xs text-[#636e72] mt-1">{{ feedResult.totalEpisodes }} episodes, {{ feedResult.schedule }}</p>
+        </div>
       </div>
     </div>
   </div>
