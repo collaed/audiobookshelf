@@ -48,6 +48,7 @@ const LanguageLearningController = require('../controllers/LanguageLearningContr
 const AiController = require('../controllers/AiController')
 const OcrController = require('../controllers/OcrController')
 const AutoTagController = require('../controllers/AutoTagController')
+const ScheduledFeedController = require('../controllers/ScheduledFeedController')
 
 class ApiRouter {
   constructor(Server) {
@@ -157,6 +158,10 @@ class ApiRouter {
     this.router.post('/items/:id/auto-tag', LibraryItemController.middleware.bind(this), AutoTagController.tagItem.bind(this))
     this.router.post('/items/:id/auto-tag/apply', LibraryItemController.middleware.bind(this), AutoTagController.tagAndApply.bind(this))
     this.router.post('/libraries/:id/auto-tag', AutoTagController.tagLibrary.bind(this))
+
+    // Scheduled podcast feeds
+    this.router.post('/items/:id/podcast-feed', LibraryItemController.middleware.bind(this), ScheduledFeedController.createFeed.bind(this))
+    this.router.get('/feeds/:id/schedule', ScheduledFeedController.getFeedSchedule.bind(this))
 
     //
     // User Routes
