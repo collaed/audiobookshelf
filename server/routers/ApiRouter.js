@@ -198,6 +198,7 @@ class ApiRouter {
     // Ebook → Audiobook conversion
     this.router.post('/items/:id/convert-to-audio', LibraryItemController.middleware.bind(this), TextToAudiobookController.convert.bind(this))
     this.router.get('/items/:id/convert-to-audio/status', LibraryItemController.middleware.bind(this), TextToAudiobookController.status.bind(this))
+    this.router.get('/tts/voices', TextToAudiobookController.voices.bind(this))
 
     // Metadata download (Calibre-style)
     this.router.post('/items/:id/metadata-download', LibraryItemController.middleware.bind(this), MetadataDownloadController.search.bind(this))

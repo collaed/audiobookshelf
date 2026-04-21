@@ -26,16 +26,20 @@ function _intelloHeaders() {
 }
 
 /**
- * TTS via intello's Piper endpoint. Returns WAV bytes or null.
+ * TTS via intello — auto-routes to Orpheus (EN, expressive) or Piper (other langs).
+ * Orpheus voices: tara, leah, jess, leo, dan, mara, troy, austin, hannah
+ * Expressive tags: [cheerful] [sad] [whisper] [laughing] [surprised]
  */
-async function _ttsViaIntello(text, language) {
+async function _ttsViaIntello(text, language, voice) {
   if (!INTELLO_URL) return null
   try {
-    const form = new URLSearchParams()
-    form.append('text', text.slice(0, 50000))
-    form.append('language', language)
-    const { data } = await axios.post(`${INTELLO_URL}/api/v1/voice/synthesize`, form, {
-      headers: { ...form.getHeaders?.() || { 'Content-Type': 'application/x-www-form-urlencoded' }, ..._intelloHeaders() },
+    const params = new URLSearchParams()
+    params.append('text', text.slice(0, 50000))
+    params.append('language', language)
+    params.append('engine', 'auto')
+    if (voice) params.append('voice', voice)
+    const { data } = await axios.post(`${INTELLO_URL}/api/v1/voice/synthesize`, params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', ..._intelloHeaders() },
       responseType: 'arraybuffer', timeout: 120000
     })
     if (data?.length > 100) return Buffer.from(data)
@@ -69,11 +73,11 @@ async function transcribeViaIntello(audioPath, language = '') {
  * Generate speech from text, save as WAV.
  * Tries intello first, falls back to local piper/espeak.
  */
-async function generateTtsWav(text, outputPath, language = 'en', timeout = 600000) {
+async function generateTtsWav(text, outputPath, language = 'en', timeout = 600000, voice = '') {
   const lang = (language || 'en').slice(0, 2).toLowerCase()
 
-  // Try intello
-  const wavBytes = await _ttsViaIntello(text, lang)
+  // Try intello (Orpheus for EN, Piper for others)
+  const wavBytes = await _ttsViaIntello(text, lang, voice)
   if (wavBytes) {
     await fs.ensureDir(Path.dirname(outputPath))
     await fs.writeFile(outputPath, wavBytes)
@@ -110,4 +114,6 @@ function getDuration(filePath) {
   })
 }
 
-module.exports = { generateTtsWav, generateTtsMp3, getDuration, transcribeViaIntello, PIPER_MODELS }
+const ORPHEUS_VOICES = ['tara', 'leah', 'jess', 'leo', 'dan', 'mara', 'troy', 'austin', 'hannah']
+
+module.exports = { generateTtsWav, generateTtsMp3, getDuration, transcribeViaIntello, PIPER_MODELS, ORPHEUS_VOICES }
