@@ -32,6 +32,52 @@ class OcrManager {
   }
 
   /**
+   * OCR with escalation (Intello pattern): primary → fallback → LLM vision.
+   * Tries the cheapest method first, escalates if confidence is low.
+   */
+  async ocrWithEscalation(imagePath, language = 'eng') {
+    // Stage 1: Primary OCR (Tesseract via intello)
+    try {
+      const result = await this.ocrImage(imagePath, language)
+      if (result?.text?.length > 50 && (result.confidence || 100) > 70) {
+        result._method = 'tesseract'
+        return result
+      }
+    } catch {}
+
+    // Stage 2: Retry with different language hint if short result
+    if (language !== 'eng') {
+      try {
+        const result = await this.ocrImage(imagePath, 'eng')
+        if (result?.text?.length > 50) {
+          result._method = 'tesseract-fallback-eng'
+          return result
+        }
+      } catch {}
+    }
+
+    // Stage 3: LLM vision (if available) — send image to LLM for text extraction
+    try {
+      const LlmProvider = require('./LlmProvider')
+      if (LlmProvider.provider !== 'disabled') {
+        const fs = require('../libs/fsExtra')
+        const imageData = await fs.readFile(imagePath)
+        const base64 = imageData.toString('base64')
+        const text = await LlmProvider.complete(
+          'Extract all text from this image. Return only the text, no commentary.',
+          `[Image attached as base64: data:image/png;base64,${base64.slice(0, 5000)}...]`,
+          { maxTokens: 2000 }
+        )
+        if (text?.length > 20) {
+          return { text, confidence: 60, _method: 'llm-vision' }
+        }
+      }
+    } catch {}
+
+    return { text: '', confidence: 0, _method: 'failed', error: 'All OCR methods failed' }
+  }
+
+  /**
    * OCR a single image, return text + blocks
    */
   async ocrImage(imagePath, language = 'eng') {

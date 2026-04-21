@@ -80,6 +80,28 @@ class AutoTagManager {
 
     const { metadata, samples } = data
 
+    // Multi-stage pipeline (SizeMy pattern): skip LLM if metadata already rich
+    if (metadata.existingGenres?.length >= 3) {
+      Logger.info(`[AutoTagManager] Book already has ${metadata.existingGenres.length} genres, enriching only`)
+      return {
+        genres: metadata.existingGenres,
+        subgenres: [],
+        mood: [],
+        themes: [],
+        pace: null,
+        targetAudience: null,
+        contentWarnings: [],
+        setting: null,
+        similar: [],
+        oneLiner: metadata.description?.slice(0, 100) || '',
+        _bookId: bookId,
+        _title: metadata.title,
+        _samplesUsed: 0,
+        _skippedLlm: true,
+        _reason: 'Book already has sufficient genre metadata'
+      }
+    }
+
     // Build the prompt with all samples
     let textContext = ''
     if (samples) {
