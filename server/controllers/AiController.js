@@ -79,6 +79,16 @@ class AiController {
     }
   }
 
+  /** GET /api/ai/characters/:bookId — list all characters (NER + LLM fallback) */
+  async listCharacters(req, res) {
+    try {
+      const result = await BookCompanionManager.listCharacters(req.params.bookId, req.user.id)
+      res.json(result)
+    } catch (err) {
+      res.status(400).json(friendlyError(err))
+    }
+  }
+
   /** POST /api/ai/check-alignment { pairs } */
   async checkAlignment(req, res) {
     if (!req.body.pairs?.length) return res.status(400).json({ error: 'pairs array required' })

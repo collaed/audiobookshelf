@@ -171,6 +171,38 @@ If you can't answer without spoilers, say so.`,
       `Who is "${characterName}"? What do we know about them so far? List their key traits and role in the story.`)
   }
 
+  /**
+   * List all characters mentioned in the book up to current position.
+   * Uses spaCy NER (via intello) first — fast and free. Falls back to LLM.
+   */
+  async listCharacters(bookId, userId) {
+    const progress = await Database.mediaProgressModel.findOne({ where: { userId, mediaItemId: bookId } })
+    const pct = progress ? Math.round((progress.currentTime / (progress.duration || 1)) * 100) : 10
+    const text = await this.getTextUpTo(bookId, pct)
+    if (!text || text.length < 50) return { characters: [], method: 'none' }
+
+    // Try NER first (cheap, fast)
+    const NlpClient = require('./NlpClient')
+    const characters = await NlpClient.extractCharacters(text)
+    if (characters?.length) {
+      return { characters, method: 'ner', progressPercent: pct }
+    }
+
+    // Fallback to LLM
+    const response = await LlmProvider.complete(
+      'List all character names mentioned in this text. Return a JSON array of strings.',
+      text.slice(-3000),
+      { maxTokens: 300 }
+    )
+    try {
+      const match = response.match(/\[[\s\S]*\]/)
+      const names = match ? JSON.parse(match[0]) : []
+      return { characters: names.map((n) => ({ name: n, mentions: 0 })), method: 'llm', progressPercent: pct }
+    } catch {
+      return { characters: [], method: 'failed' }
+    }
+  }
+
   // ── Feature 5: Translation Quality Check ───────────────────────────────
 
   /**

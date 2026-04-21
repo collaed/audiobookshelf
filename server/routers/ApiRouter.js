@@ -484,6 +484,7 @@ class ApiRouter {
     this.router.post('/ai/search', AiController.smartSearch.bind(this))
     this.router.post('/ai/ask/:bookId', AiController.askAboutBook.bind(this))
     this.router.post('/ai/character/:bookId', AiController.getCharacter.bind(this))
+    this.router.get('/ai/characters/:bookId', AiController.listCharacters.bind(this))
     this.router.post('/ai/check-alignment', AiController.checkAlignment.bind(this))
 
     //
