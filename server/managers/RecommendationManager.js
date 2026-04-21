@@ -368,4 +368,8 @@ class RecommendationManager {
   }
 }
 
+// Aliases for controller compatibility
+RecommendationManager.prototype.getProfile = RecommendationManager.prototype.buildProfile
+RecommendationManager.prototype.rebuildProfile = RecommendationManager.prototype.buildProfile
+
 module.exports = new RecommendationManager()
