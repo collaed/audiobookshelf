@@ -7,8 +7,19 @@ Usage:
 
 Configure path mappings in abs-agent.json (created on first run).
 """
-import argparse, json, os, sys, time, threading, subprocess, shutil, socket
-import urllib.request, urllib.error, urllib.parse
+import argparse
+import contextlib
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 AGENT_VERSION = "1.0.04141543"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "abs-agent.json")
@@ -48,7 +59,7 @@ def log(msg):
 def get_recent_logs(n=10):
     try:
         if os.path.exists(LOG_FILE):
-            return [l.rstrip() for l in open(LOG_FILE).readlines()[-n:]]
+            return [line.rstrip() for line in open(LOG_FILE).readlines()[-n:]]
     except: pass
     return []
 
@@ -69,10 +80,7 @@ def map_path(path, config):
     for remote, local in config.get("_path_mappings", {}).items():
         if path.startswith(remote):
             mapped = local + path[len(remote):]
-            if os.name == "nt":
-                mapped = mapped.replace("/", "\\")
-            else:
-                mapped = mapped.replace("\\", "/")
+            mapped = mapped.replace("/", "\\") if os.name == "nt" else mapped.replace("\\", "/")
             return mapped
     return path
 
@@ -92,8 +100,7 @@ def unmap_path(local_path, config):
 def buffer_result(task_id, result):
     buf = []
     if os.path.exists(BUFFER_FILE):
-        try: buf = json.load(open(BUFFER_FILE))
-        except: pass
+        with contextlib.suppress(BaseException): buf = json.load(open(BUFFER_FILE))
     buf.append({"task_id": task_id, "result": result, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
     json.dump(buf, open(BUFFER_FILE, "w"))
 
@@ -106,7 +113,7 @@ def flush_buffer(base_url, headers):
     flushed, remaining = 0, []
     for item in buf:
         try:
-            payload = json.dumps(item["result"]).encode()
+            json.dumps(item["result"]).encode()
             req = urllib.request.Request(
                 f"{base_url}/api/agent/heartbeat",
                 data=json.dumps({"agentId": "buffer", "result": item["result"]}).encode(),
@@ -130,12 +137,12 @@ def task_scan_incoming(params, config):
     if os.name == "nt" and mp.startswith("//"):
         mp = mp.replace("/", os.sep)
 
-    log(f"[scan] Path: {incoming} -> {repr(mp)}")
+    log(f"[scan] Path: {incoming} -> {mp!r}")
     log(f"[scan] Exists: {os.path.exists(mp)}")
 
     found = []
     walk_dirs = 0
-    for root, dirs, files in os.walk(mp):
+    for root, _dirs, files in os.walk(mp):
         try:
             walk_dirs += 1
             if walk_dirs <= 5:
@@ -352,7 +359,7 @@ def task_audio_diagnose(params, config):
                 continue
 
             # Measure noise floor & dynamic range via astats
-            r = subprocess.run(
+            subprocess.run(
                 ["ffmpeg", "-i", wav, "-af", "astats=metadata=1:reset=1,ametadata=print:file=" + stats_file,
                  "-f", "null", "-"],
                 capture_output=True, text=True, timeout=30)
@@ -363,11 +370,9 @@ def task_audio_diagnose(params, config):
             if os.path.exists(stats_file):
                 for line in open(stats_file):
                     if "RMS_level" in line:
-                        try: rms_vals.append(float(line.split("=")[-1]))
-                        except: pass
+                        with contextlib.suppress(BaseException): rms_vals.append(float(line.split("=")[-1]))
                     elif "Peak_level" in line:
-                        try: peak_vals.append(float(line.split("=")[-1]))
-                        except: pass
+                        with contextlib.suppress(BaseException): peak_vals.append(float(line.split("=")[-1]))
 
             if rms_vals:
                 # Noise floor: quietest RMS frames (bottom 20%)
@@ -391,8 +396,7 @@ def task_audio_diagnose(params, config):
             hf_rms = []
             for line in r2.stderr.split("\n") + r2.stdout.split("\n"):
                 if "RMS_level" in line:
-                    try: hf_rms.append(float(line.split("=")[-1].strip()))
-                    except: pass
+                    with contextlib.suppress(BaseException): hf_rms.append(float(line.split("=")[-1].strip()))
             if hf_rms:
                 high_freq_energies.append(sum(hf_rms) / len(hf_rms))
 
@@ -400,11 +404,9 @@ def task_audio_diagnose(params, config):
             log(f"[diagnose] Sample {i} error: {e}")
         finally:
             for f in [wav, stats_file]:
-                try: os.remove(f)
-                except: pass
+                with contextlib.suppress(BaseException): os.remove(f)
 
-    try: shutil.rmtree(tmp, ignore_errors=True)
-    except: pass
+    with contextlib.suppress(BaseException): shutil.rmtree(tmp, ignore_errors=True)
 
     if not noise_floors:
         return {"error": "could not analyze audio", "path": p}
@@ -596,10 +598,7 @@ def task_audio_clean(params, config):
 
     # Determine output path
     base, ext = os.path.splitext(mp)
-    if output_format != "same":
-        out_ext = f".{output_format}"
-    else:
-        out_ext = ext
+    out_ext = f".{output_format}" if output_format != "same" else ext
     tmp_out = base + ".cleaned" + out_ext
 
     # Build ffmpeg command
@@ -780,8 +779,7 @@ def task_diag(params, config):
             "is_dir": os.path.isdir(mp),
         }
         if os.path.isdir(mp):
-            try: path_info[p]["items"] = len(os.listdir(mp))
-            except: pass
+            with contextlib.suppress(BaseException): path_info[p]["items"] = len(os.listdir(mp))
     return {
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -906,7 +904,7 @@ def main():
                     "bg_task": _bg_task.get("id"),
                     "consecutive_errors": consecutive_errors,
                 })
-                encoded = base64.b64encode(status.encode()).decode()
+                base64.b64encode(status.encode()).decode()
                 # Send as heartbeat with no result
                 body = json.dumps({
                     "agentId": args.agent_id,

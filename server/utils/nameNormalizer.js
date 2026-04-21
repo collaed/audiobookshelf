@@ -29,7 +29,7 @@ function parseName(nameStr) {
   const str = nameStr.trim().replace(/\s+/g, ' ')
   if (!str) return { first: '', last: '', full: '' }
 
-  let first = '', last = '', suffix = ''
+  let first = '', last = '', suffix = '' // eslint-disable-line no-useless-assignment
 
   if (str.includes(',')) {
     const parts = str.split(',').map((s) => s.trim())

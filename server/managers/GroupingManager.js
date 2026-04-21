@@ -35,7 +35,7 @@ class GroupingManager {
     return title
       .replace(this.stripWords, '')
       .replace(this.stripNumbers, '')
-      .replace(/[-_.:,()\[\]]/g, ' ')
+      .replace(/[-_.:,()[\]]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase()

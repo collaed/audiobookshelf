@@ -1,0 +1,7 @@
+{
+  "all": true,
+  "include": ["server/**/*.js"],
+  "exclude": ["client/**", "client-v3/**", "client-v3-new/**", "node_modules/**"],
+  "reporter": ["text", "text-summary", "html"],
+  "report-dir": "coverage"
+}
