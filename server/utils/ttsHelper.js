@@ -2,74 +2,107 @@ const { execFile } = require('child_process')
 const Path = require('path')
 const fs = require('../libs/fsExtra')
 const Logger = require('../Logger')
+const axios = require('axios').default
 
 /**
- * Shared TTS utility — extracted from LanguageLearningManager, BookSummaryManager, TextToAudiobookManager.
- * Supports Piper (neural, 8+ languages) and espeak (fallback).
+ * Shared TTS/STT utility.
+ * Priority: L'Intello API (Piper TTS + Groq Whisper) → local binary fallback.
  */
 
-const TTS_ENGINE = process.env.TTS_ENGINE || 'piper'
+const INTELLO_URL = process.env.INTELLO_URL || process.env.AIROUTER_URL || ''
+const INTELLO_TOKEN = process.env.INTELLO_TOKEN || ''
 const TTS_BIN = process.env.TTS_BIN || 'piper'
 
 const PIPER_MODELS = {
   en: 'en_US-lessac-medium', fr: 'fr_FR-siwis-medium', de: 'de_DE-thorsten-medium',
   es: 'es_ES-sharvard-medium', it: 'it_IT-riccardo-x_low', nl: 'nl_NL-mls-medium',
-  pt: 'pt_BR-faber-medium', ru: 'ru_RU-irina-medium', zh: 'zh_CN-huayan-medium',
-  ja: 'ja_JP-kokoro-medium', ko: 'ko_KR-kss-x_low',
+  pt: 'pt_BR-faber-medium', ru: 'ru_RU-irina-medium',
 }
 
-const ESPEAK_VOICES = { en: 'en', fr: 'fr', de: 'de', es: 'es', it: 'it', nl: 'nl', pt: 'pt', ru: 'ru' }
+function _intelloHeaders() {
+  const h = {}
+  if (INTELLO_TOKEN) h['Authorization'] = `Bearer ${INTELLO_TOKEN}`
+  return h
+}
+
+/**
+ * TTS via intello's Piper endpoint. Returns WAV bytes or null.
+ */
+async function _ttsViaIntello(text, language) {
+  if (!INTELLO_URL) return null
+  try {
+    const form = new URLSearchParams()
+    form.append('text', text.slice(0, 50000))
+    form.append('language', language)
+    const { data } = await axios.post(`${INTELLO_URL}/api/v1/voice/synthesize`, form, {
+      headers: { ...form.getHeaders?.() || { 'Content-Type': 'application/x-www-form-urlencoded' }, ..._intelloHeaders() },
+      responseType: 'arraybuffer', timeout: 120000
+    })
+    if (data?.length > 100) return Buffer.from(data)
+  } catch (err) {
+    Logger.debug(`[ttsHelper] Intello TTS failed: ${err.message}`)
+  }
+  return null
+}
+
+/**
+ * STT via intello's Groq Whisper endpoint. Returns { text, provider } or null.
+ */
+async function transcribeViaIntello(audioPath, language = '') {
+  if (!INTELLO_URL) return null
+  try {
+    const FormData = require('form-data')
+    const form = new FormData()
+    form.append('file', require('fs').createReadStream(audioPath))
+    if (language) form.append('language', language)
+    const { data } = await axios.post(`${INTELLO_URL}/api/v1/voice/transcribe`, form, {
+      headers: { ...form.getHeaders(), ..._intelloHeaders() }, timeout: 120000
+    })
+    if (data?.text) return data
+  } catch (err) {
+    Logger.debug(`[ttsHelper] Intello STT failed: ${err.message}`)
+  }
+  return null
+}
 
 /**
  * Generate speech from text, save as WAV.
- * @param {string} text
- * @param {string} outputPath - must end in .wav
- * @param {string} [language='en']
- * @param {number} [timeout=600000]
- * @returns {Promise<string>} outputPath
+ * Tries intello first, falls back to local piper/espeak.
  */
-function generateTtsWav(text, outputPath, language = 'en', timeout = 600000) {
+async function generateTtsWav(text, outputPath, language = 'en', timeout = 600000) {
   const lang = (language || 'en').slice(0, 2).toLowerCase()
 
-  if (TTS_ENGINE === 'piper') {
-    const model = PIPER_MODELS[lang] || PIPER_MODELS.en
-    return new Promise((resolve, reject) => {
-      const proc = execFile(TTS_BIN, ['--model', model, '--output_file', outputPath],
-        { timeout }, (err) => err ? reject(err) : resolve(outputPath))
-      proc.stdin.write(text)
-      proc.stdin.end()
-    })
+  // Try intello
+  const wavBytes = await _ttsViaIntello(text, lang)
+  if (wavBytes) {
+    await fs.ensureDir(Path.dirname(outputPath))
+    await fs.writeFile(outputPath, wavBytes)
+    return outputPath
   }
 
-  const voice = ESPEAK_VOICES[lang] || 'en'
+  // Local fallback
+  const model = PIPER_MODELS[lang] || PIPER_MODELS.en
   return new Promise((resolve, reject) => {
-    execFile('espeak', ['-v', voice, '-w', outputPath, text.slice(0, 50000)],
-      { timeout: Math.min(timeout, 300000) }, (err) => err ? reject(err) : resolve(outputPath))
+    const proc = execFile(TTS_BIN, ['--model', model, '--output_file', outputPath],
+      { timeout }, (err) => err ? reject(err) : resolve(outputPath))
+    proc.stdin.write(text)
+    proc.stdin.end()
   })
 }
 
-/**
- * Generate speech and convert to MP3.
- * @returns {Promise<{mp3Path: string, duration: number}>}
- */
 async function generateTtsMp3(text, outputMp3Path, language = 'en') {
   const wavPath = outputMp3Path.replace(/\.mp3$/, '.wav')
   await fs.ensureDir(Path.dirname(outputMp3Path))
   await generateTtsWav(text, wavPath, language)
-
   await new Promise((resolve, reject) => {
     execFile('ffmpeg', ['-y', '-i', wavPath, '-codec:a', 'libmp3lame', '-q:a', '4', outputMp3Path],
       { timeout: 120000 }, (err) => err ? reject(err) : resolve())
   })
-
   const duration = await getDuration(outputMp3Path)
   await fs.remove(wavPath).catch(() => {})
   return { mp3Path: outputMp3Path, duration }
 }
 
-/**
- * Get audio duration in seconds via ffprobe.
- */
 function getDuration(filePath) {
   return new Promise((resolve) => {
     execFile('ffprobe', ['-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', filePath],
@@ -77,4 +110,4 @@ function getDuration(filePath) {
   })
 }
 
-module.exports = { generateTtsWav, generateTtsMp3, getDuration, PIPER_MODELS, ESPEAK_VOICES, TTS_ENGINE, TTS_BIN }
+module.exports = { generateTtsWav, generateTtsMp3, getDuration, transcribeViaIntello, PIPER_MODELS }

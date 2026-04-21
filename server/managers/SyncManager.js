@@ -23,23 +23,20 @@ class SyncManager {
   }
 
   /**
-   * Check if Whisper is available
+   * Check if Whisper is available (intello or local)
    */
   async isAvailable() {
+    // Check intello first
+    const { transcribeViaIntello } = require('../utils/ttsHelper')
+    if (process.env.INTELLO_URL || process.env.AIROUTER_URL) return true
     return new Promise((resolve) => {
-      execFile(this.whisperBin, ['--help'], { timeout: 5000 }, (err) => {
-        resolve(!err)
-      })
+      execFile(this.whisperBin, ['--help'], { timeout: 5000 }, (err) => resolve(!err))
     })
   }
 
   /**
-   * Transcribe a short sample from an audio file using Whisper
-   * @param {string} audioPath
-   * @param {number} [startSec=0] - start offset in seconds
-   * @param {number} [duration=60] - duration to transcribe
-   * @param {string} [language] - hint language (auto-detect if omitted)
-   * @returns {Promise<{text: string, language: string, segments: Array}>}
+   * Transcribe a short sample from an audio file.
+   * Tries intello (Groq Whisper) first, falls back to local whisper.
    */
   async transcribeSample(audioPath, startSec = 0, duration = null, language = null) {
     duration = duration || this.sampleDuration
@@ -53,7 +50,15 @@ class SyncManager {
       execFile('ffmpeg', ffArgs, { timeout: 30000 }, (err) => err ? reject(err) : resolve())
     })
 
-    // Transcribe with Whisper
+    // Try intello STT first
+    const { transcribeViaIntello } = require('../utils/ttsHelper')
+    const intelloResult = await transcribeViaIntello(samplePath, language || '')
+    if (intelloResult?.text) {
+      await fs.remove(samplePath).catch(() => {})
+      return { text: intelloResult.text, language: language || 'en', segments: [] }
+    }
+
+    // Fall back to local whisper
     const whisperArgs = [samplePath, '--model', 'base', '--output_format', 'json', '--output_dir', tmpDir]
     if (language) whisperArgs.push('--language', language)
 
