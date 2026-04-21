@@ -54,6 +54,7 @@ const ModernizeController = require('../controllers/ModernizeController')
 const GutenbergController = require('../controllers/GutenbergController')
 const BookSummaryController = require('../controllers/BookSummaryController')
 const TextToAudiobookController = require('../controllers/TextToAudiobookController')
+const MetadataDownloadController = require('../controllers/MetadataDownloadController')
 
 class ApiRouter {
   constructor(Server) {
@@ -192,6 +193,11 @@ class ApiRouter {
     // Ebook → Audiobook conversion
     this.router.post('/items/:id/convert-to-audio', LibraryItemController.middleware.bind(this), TextToAudiobookController.convert.bind(this))
     this.router.get('/items/:id/convert-to-audio/status', LibraryItemController.middleware.bind(this), TextToAudiobookController.status.bind(this))
+
+    // Metadata download (Calibre-style)
+    this.router.post('/items/:id/metadata-download', LibraryItemController.middleware.bind(this), MetadataDownloadController.search.bind(this))
+    this.router.post('/items/:id/metadata-download/apply', LibraryItemController.middleware.bind(this), MetadataDownloadController.apply.bind(this))
+    this.router.post('/metadata/search', MetadataDownloadController.freeSearch.bind(this))
 
     //
     // User Routes
