@@ -57,6 +57,9 @@ const TextToAudiobookController = require('../controllers/TextToAudiobookControl
 const MetadataDownloadController = require('../controllers/MetadataDownloadController')
 const FtsController = require('../controllers/FtsController')
 const WebhookController = require('../controllers/WebhookController')
+const CoverController = require('../controllers/CoverController')
+const TranslationController = require('../controllers/TranslationController')
+const ExtNotificationController = require('../controllers/ExtNotificationController')
 
 class ApiRouter {
   constructor(Server) {
@@ -209,6 +212,18 @@ class ApiRouter {
     // Webhooks (from L'Intello)
     this.router.post('/webhooks/intello', WebhookController.receive.bind(this))
     this.router.post('/webhooks/register', WebhookController.register.bind(this))
+
+    // Cover generation
+    this.router.post('/items/:id/generate-cover', CoverController.generate.bind(this))
+    this.router.post('/covers/generate-missing/:libraryId', CoverController.generateBatch.bind(this))
+
+    // Translation
+    this.router.post('/items/:id/translate', TranslationController.translate.bind(this))
+    this.router.get('/translation/backends', TranslationController.backends.bind(this))
+
+    // Notifications
+    this.router.get('/notifications/ext/status', ExtNotificationController.status.bind(this))
+    this.router.post('/notifications/ext/test', ExtNotificationController.test.bind(this))
 
     //
     // User Routes
