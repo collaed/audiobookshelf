@@ -55,6 +55,8 @@ const GutenbergController = require('../controllers/GutenbergController')
 const BookSummaryController = require('../controllers/BookSummaryController')
 const TextToAudiobookController = require('../controllers/TextToAudiobookController')
 const MetadataDownloadController = require('../controllers/MetadataDownloadController')
+const FtsController = require('../controllers/FtsController')
+const WebhookController = require('../controllers/WebhookController')
 
 class ApiRouter {
   constructor(Server) {
@@ -198,6 +200,15 @@ class ApiRouter {
     this.router.post('/items/:id/metadata-download', LibraryItemController.middleware.bind(this), MetadataDownloadController.search.bind(this))
     this.router.post('/items/:id/metadata-download/apply', LibraryItemController.middleware.bind(this), MetadataDownloadController.apply.bind(this))
     this.router.post('/metadata/search', MetadataDownloadController.freeSearch.bind(this))
+
+    // Full-text search
+    this.router.get('/fts/search', FtsController.search.bind(this))
+    this.router.get('/fts/status', FtsController.status.bind(this))
+    this.router.post('/fts/index/:id', FtsController.indexLibrary.bind(this))
+
+    // Webhooks (from L'Intello)
+    this.router.post('/webhooks/intello', WebhookController.receive.bind(this))
+    this.router.post('/webhooks/register', WebhookController.register.bind(this))
 
     //
     // User Routes

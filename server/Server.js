@@ -40,6 +40,7 @@ const BinaryManager = require('./managers/BinaryManager')
 const ShareManager = require('./managers/ShareManager')
 const IncomingManager = require('./managers/IncomingManager')
 const ExtendedScheduler = require('./managers/ExtendedScheduler')
+const FtsManager = require('./managers/FtsManager')
 const LibraryScanner = require('./scanner/LibraryScanner')
 
 //Import the main Passport and Express-Session library
@@ -187,6 +188,7 @@ class Server {
         Logger.error(`[Server] IncomingManager init failed (non-fatal): ${err.message}`)
       })
       ExtendedScheduler.start()
+      FtsManager.init().catch((err) => Logger.error(`[Server] FTS init failed (non-fatal): ${err.message}`))
     }
   }
 
