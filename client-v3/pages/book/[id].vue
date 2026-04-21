@@ -77,6 +77,15 @@ const convertToAudio = async () => { converting.value = true; convertResult.valu
 // OCR
 const runOcr = async () => { ocrRunning.value = true; ocrResult.value = await post(`/items/${id}/ocr`, { language: ocrLang.value }); ocrRunning.value = false }
 
+// Metadata download
+const metadataResults = ref(null); const metadataLoading = ref(false)
+const searchMetadata = async () => { metadataLoading.value = true; metadataResults.value = await post(`/items/${id}/metadata-download`); metadataLoading.value = false }
+const applyMetadata = async () => { const r = await post(`/items/${id}/metadata-download/apply`); if (r) metadataResults.value = { ...metadataResults.value, applied: r } }
+
+// Format conversion
+const convertFormat = ref('epub'); const ebookConvertResult = ref(null)
+const convertEbook = async () => { ebookConvertResult.value = await post('/tools/convert', { bookId: id, format: convertFormat.value }) }
+
 const tabs = [
   { id: 'overview', label: '⭐ Overview' },
   { id: 'ai', label: '🤖 AI' },
@@ -105,16 +114,34 @@ const tabs = [
 
     <!-- Overview -->
     <div v-if="tab === 'overview'" class="space-y-4">
-      <div class="flex gap-2">
-        <button @click="loadReviews" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">Load Reviews</button>
+      <div class="flex gap-2 flex-wrap">
+        <button @click="loadReviews" class="bg-abs-accent px-4 py-2 rounded text-sm">Load Reviews</button>
+        <button @click="searchMetadata" :disabled="metadataLoading" class="bg-abs-card border border-abs-accent px-4 py-2 rounded text-sm">{{ metadataLoading ? 'Searching...' : '📥 Download Metadata' }}</button>
         <span v-if="convStatus?.canConvert" class="bg-yellow-600/20 text-yellow-400 px-3 py-2 rounded text-sm">📖 Ebook only — can convert to audio</span>
-        <span v-if="convStatus?.hasAudio && convStatus?.hasEbook" class="bg-green-600/20 text-green-400 px-3 py-2 rounded text-sm">🎧📖 Both formats available</span>
+        <span v-if="convStatus?.hasAudio && convStatus?.hasEbook" class="bg-green-600/20 text-green-400 px-3 py-2 rounded text-sm">🎧📖 Both formats</span>
       </div>
+
+      <!-- Metadata download results -->
+      <div v-if="metadataResults?.bestMatch" class="bg-abs-card p-4 rounded space-y-2">
+        <h3 class="font-medium">📥 Metadata Found ({{ metadataResults.sources?.join(', ') }})</h3>
+        <p v-if="metadataResults.bestMatch.title"><strong>Title:</strong> {{ metadataResults.bestMatch.title }}</p>
+        <p v-if="metadataResults.bestMatch.author"><strong>Author:</strong> {{ metadataResults.bestMatch.author }}</p>
+        <p v-if="metadataResults.bestMatch.isbn"><strong>ISBN:</strong> {{ metadataResults.bestMatch.isbn }}</p>
+        <p v-if="metadataResults.bestMatch.publisher"><strong>Publisher:</strong> {{ metadataResults.bestMatch.publisher }}</p>
+        <p v-if="metadataResults.bestMatch.genres?.length"><strong>Genres:</strong> {{ metadataResults.bestMatch.genres.join(', ') }}</p>
+        <p v-if="metadataResults.bestMatch.description" class="text-sm text-abs-muted">{{ metadataResults.bestMatch.description?.slice(0, 200) }}...</p>
+        <img v-if="metadataResults.bestMatch.cover" :src="metadataResults.bestMatch.cover" class="w-24 rounded" />
+        <p class="text-xs text-abs-muted">Confidence: {{ metadataResults.bestMatch._confidence }}% from {{ metadataResults.bestMatch._sources?.join(', ') }}</p>
+        <button v-if="!metadataResults.applied" @click="applyMetadata" class="bg-green-700 px-4 py-2 rounded text-sm">✅ Apply to Book</button>
+        <p v-else class="text-green-400 text-sm">✅ Applied: {{ metadataResults.applied.fields?.join(', ') }}</p>
+      </div>
+
+      <!-- Reviews -->
       <div v-if="reviews" class="space-y-3">
-        <p class="text-lg">Average: <span class="text-[#6c5ce7] font-bold">{{ reviews.avgRating }}/5</span> ({{ reviews.totalRatings }} ratings)</p>
-        <div v-for="s in reviews.sources" :key="s.source" class="bg-[#2d3436] p-3 rounded">
+        <p class="text-lg">Average: <span class="text-abs-accent font-bold">{{ reviews.avgRating }}/5</span> ({{ reviews.totalRatings }} ratings)</p>
+        <div v-for="s in reviews.sources" :key="s.source" class="bg-abs-card p-3 rounded">
           <div class="flex justify-between"><span class="font-medium">{{ s.source }}</span><span>{{ '★'.repeat(Math.round(s.rating)) }}{{ '☆'.repeat(5 - Math.round(s.rating)) }} ({{ s.ratingCount }})</span></div>
-          <p v-for="r in (s.reviews || []).slice(0, 2)" :key="r" class="text-sm text-[#636e72] mt-1 italic">"{{ r.slice(0, 200) }}"</p>
+          <p v-for="r in (s.reviews || []).slice(0, 2)" :key="r" class="text-sm text-abs-muted mt-1 italic">"{{ r.slice(0, 200) }}"</p>
         </div>
       </div>
     </div>
@@ -190,25 +217,54 @@ const tabs = [
 
     <!-- Convert -->
     <div v-if="tab === 'convert'" class="space-y-4">
-      <div v-if="convStatus?.canConvert" class="bg-[#2d3436] p-4 rounded">
-        <h3 class="font-medium mb-3">📖 → 🎧 Convert Ebook to Audiobook</h3>
-        <p class="text-sm text-[#636e72] mb-3">Generate a TTS audiobook from this ebook. Requires Piper TTS.</p>
-        <div class="flex gap-3 items-center">
-          <select v-model="ttsLang" class="bg-[#1e272e] px-3 py-2 rounded text-sm"><option value="en">English</option><option value="fr">French</option><option value="de">German</option><option value="es">Spanish</option><option value="it">Italian</option></select>
-          <button @click="convertToAudio" :disabled="converting" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">{{ converting ? 'Converting...' : '🎧 Convert to Audiobook' }}</button>
+      <!-- Ebook format conversion (Calibre) -->
+      <div v-if="convStatus?.hasEbook" class="bg-abs-card p-4 rounded">
+        <h3 class="font-medium mb-3">📄 Convert Ebook Format</h3>
+        <p class="text-sm text-abs-muted mb-3">Convert between ebook formats. Requires Calibre installed on server.</p>
+        <div class="flex gap-3 items-center flex-wrap">
+          <select v-model="convertFormat" class="bg-abs-bg px-3 py-2 rounded text-sm">
+            <option value="epub">EPUB</option><option value="mobi">MOBI (Kindle legacy)</option>
+            <option value="azw3">AZW3 (Kindle modern)</option><option value="pdf">PDF</option>
+            <option value="txt">Plain Text</option><option value="html">HTML</option>
+            <option value="docx">DOCX</option><option value="fb2">FB2</option>
+            <option value="rtf">RTF</option><option value="lit">LIT</option>
+          </select>
+          <button @click="convertEbook" class="bg-abs-accent px-4 py-2 rounded text-sm">Convert</button>
         </div>
-        <div v-if="convertResult" class="mt-3 text-sm text-green-400">✅ {{ convertResult.successfulChapters }}/{{ convertResult.totalChapters }} chapters generated ({{ Math.round(convertResult.totalDuration / 60) }} min)</div>
+        <div v-if="ebookConvertResult" class="mt-3 text-sm text-green-400">✅ Converted to {{ ebookConvertResult.format }}</div>
       </div>
-      <div v-if="convStatus?.hasEbook" class="bg-[#2d3436] p-4 rounded">
-        <h3 class="font-medium mb-3">📄 OCR (Scanned PDF)</h3>
-        <p class="text-sm text-[#636e72] mb-3">Make a scanned PDF searchable. Required before converting to audio.</p>
+
+      <!-- Ebook to audiobook (TTS) -->
+      <div v-if="convStatus?.canConvert" class="bg-abs-card p-4 rounded">
+        <h3 class="font-medium mb-3">📖 → 🎧 Convert to Audiobook (TTS)</h3>
+        <p class="text-sm text-abs-muted mb-3">Generate a TTS audiobook. Requires Piper TTS.</p>
         <div class="flex gap-3 items-center">
-          <select v-model="ocrLang" class="bg-[#1e272e] px-3 py-2 rounded text-sm"><option value="eng">English</option><option value="fra">French</option><option value="deu">German</option><option value="spa">Spanish</option></select>
-          <button @click="runOcr" :disabled="ocrRunning" class="bg-[#6c5ce7] px-4 py-2 rounded text-sm">{{ ocrRunning ? 'Processing...' : '🔍 Run OCR' }}</button>
+          <select v-model="ttsLang" class="bg-abs-bg px-3 py-2 rounded text-sm">
+            <option value="en">English</option><option value="fr">French</option><option value="de">German</option>
+            <option value="es">Spanish</option><option value="it">Italian</option><option value="pt">Portuguese</option>
+            <option value="nl">Dutch</option><option value="ru">Russian</option>
+          </select>
+          <button @click="convertToAudio" :disabled="converting" class="bg-abs-accent px-4 py-2 rounded text-sm">{{ converting ? 'Converting...' : '🎧 Convert' }}</button>
+        </div>
+        <div v-if="convertResult" class="mt-3 text-sm text-green-400">✅ {{ convertResult.successfulChapters }}/{{ convertResult.totalChapters }} chapters ({{ Math.round(convertResult.totalDuration / 60) }} min)</div>
+      </div>
+
+      <!-- OCR -->
+      <div v-if="convStatus?.hasEbook" class="bg-abs-card p-4 rounded">
+        <h3 class="font-medium mb-3">🔍 OCR (Scanned PDF)</h3>
+        <p class="text-sm text-abs-muted mb-3">Make a scanned PDF searchable.</p>
+        <div class="flex gap-3 items-center">
+          <select v-model="ocrLang" class="bg-abs-bg px-3 py-2 rounded text-sm">
+            <option value="eng">English</option><option value="fra">French</option><option value="deu">German</option>
+            <option value="spa">Spanish</option><option value="ita">Italian</option><option value="nld">Dutch</option>
+          </select>
+          <button @click="runOcr" :disabled="ocrRunning" class="bg-abs-accent px-4 py-2 rounded text-sm">{{ ocrRunning ? 'Processing...' : '🔍 Run OCR' }}</button>
         </div>
         <div v-if="ocrResult" class="mt-3 text-sm text-green-400">✅ OCR complete</div>
       </div>
-      <div v-if="!convStatus?.canConvert && convStatus?.hasAudio" class="bg-[#2d3436] p-3 rounded text-sm text-[#636e72]">This book already has audio files.</div>
+
+      <div v-if="!convStatus?.hasEbook && !convStatus?.hasAudio" class="bg-abs-card p-3 rounded text-sm text-abs-muted">No files to convert.</div>
+      <div v-if="convStatus?.hasAudio && !convStatus?.hasEbook" class="bg-abs-card p-3 rounded text-sm text-abs-muted">This book only has audio files. Upload an ebook to enable conversion.</div>
     </div>
 
     <!-- Send -->

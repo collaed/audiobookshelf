@@ -1,22 +1,21 @@
 export const useApi = () => {
   const config = useRuntimeConfig()
 
-  const getToken = () => {
-    if (import.meta.client) {
-      // ABS stores JWT in localStorage as 'token'
-      return localStorage.getItem('token') || ''
-    }
-    return ''
+  const getToken = (): string => {
+    if (!import.meta.client) return ''
+    // ABS stores JWT as 'token' in localStorage
+    // Try multiple possible keys (some ABS versions use different keys)
+    return localStorage.getItem('token')
+      || localStorage.getItem('abs_token')
+      || ''
   }
 
-  const api = async (path: string, options: any = {}) => {
+  const isLoggedIn = (): boolean => !!getToken()
+
+  const api = async <T = any>(path: string, options: any = {}): Promise<T | null> => {
     const token = getToken()
-    if (!token) {
-      console.warn('[useApi] No token in localStorage. Log in via main ABS UI first.')
-      return null
-    }
     try {
-      return await $fetch(`${config.public.apiBase}${path}`, {
+      return await $fetch<T>(`${config.public.apiBase}${path}`, {
         ...options,
         headers: {
           ...options.headers,
@@ -24,17 +23,19 @@ export const useApi = () => {
         }
       })
     } catch (err: any) {
-      if (err?.response?.status === 401 || err?.statusCode === 401) {
-        return null
+      const status = err?.response?.status || err?.statusCode
+      if (status === 401) return null
+      // Log non-auth errors for debugging
+      if (import.meta.client) {
+        console.warn(`[API ${status || 'ERR'}] ${path}:`, err?.data?.error || err?.message || '')
       }
-      console.warn(`API error ${path}:`, err?.message || err)
       return null
     }
   }
 
-  const get = (path: string) => api(path)
-  const post = (path: string, body?: any) => api(path, { method: 'POST', body })
-  const patch = (path: string, body?: any) => api(path, { method: 'PATCH', body })
+  const get = <T = any>(path: string) => api<T>(path)
+  const post = <T = any>(path: string, body?: any) => api<T>(path, { method: 'POST', body })
+  const patch = <T = any>(path: string, body?: any) => api<T>(path, { method: 'PATCH', body })
 
-  return { api, get, post, patch }
+  return { api, get, post, patch, isLoggedIn, getToken }
 }
