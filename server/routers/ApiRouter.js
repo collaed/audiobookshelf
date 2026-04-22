@@ -61,6 +61,7 @@ const CoverController = require('../controllers/CoverController')
 const TranslationController = require('../controllers/TranslationController')
 const ExtNotificationController = require('../controllers/ExtNotificationController')
 const McpController = require('../controllers/McpController')
+const SleepController = require('../controllers/SleepController')
 
 class ApiRouter {
   constructor(Server) {
@@ -229,6 +230,10 @@ class ApiRouter {
 
     // MCP (Model Context Protocol) — AI client integration
     this.router.post('/mcp', McpController.handle.bind(this))
+
+    // Sleep detection (from mobile StayAwakeManager)
+    this.router.post('/sleep/report', SleepController.report.bind(this))
+    this.router.get('/sleep/rewind/:bookId', SleepController.rewind.bind(this))
 
     //
     // User Routes
