@@ -10,7 +10,7 @@ const RecommendationManager = require('../managers/RecommendationManager')
  * @typedef {Request & RequestUserObject} RequestWithUser
  */
 
-const VALID_CATEGORIES = ['all', 'dna_match', 'authors_you_love', 'narrators_you_love', 'complete_series', 'hidden_gems']
+const VALID_CATEGORIES = ['all', 'dna_match', 'authors_you_love', 'narrators_you_love', 'complete_series', 'hidden_gems', 'anti']
 
 class RecommendationController {
   constructor() {}

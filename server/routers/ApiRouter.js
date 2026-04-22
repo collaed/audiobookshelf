@@ -60,6 +60,7 @@ const WebhookController = require('../controllers/WebhookController')
 const CoverController = require('../controllers/CoverController')
 const TranslationController = require('../controllers/TranslationController')
 const ExtNotificationController = require('../controllers/ExtNotificationController')
+const McpController = require('../controllers/McpController')
 
 class ApiRouter {
   constructor(Server) {
@@ -225,6 +226,9 @@ class ApiRouter {
     // Notifications
     this.router.get('/notifications/ext/status', ExtNotificationController.status.bind(this))
     this.router.post('/notifications/ext/test', ExtNotificationController.test.bind(this))
+
+    // MCP (Model Context Protocol) — AI client integration
+    this.router.post('/mcp', McpController.handle.bind(this))
 
     //
     // User Routes

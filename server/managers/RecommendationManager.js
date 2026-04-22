@@ -3,7 +3,7 @@ const Database = require('../Database')
 const natural = require('natural')
 const stopwords = natural.stopwords
 
-const WEIGHTS = { author: 2, narrator: 1.5, genre: 1, theme: 1 }
+const WEIGHTS = { author: 2.0, narrator: 1.5, genre: 1.0, series: 1.5, theme: 0.5 }
 
 class RecommendationManager {
   constructor() {
@@ -51,57 +51,86 @@ class RecommendationManager {
   }
 
   async buildProfile(userId) {
+    // Get all progress (not just finished) for implicit ratings
     const progresses = await Database.mediaProgressModel.findAll({
-      where: { userId, isFinished: true, mediaItemType: 'book' }
+      where: { userId, mediaItemType: 'book' }
     })
     if (!progresses.length) return null
 
-    const bookIds = progresses.map((p) => p.mediaItemId)
+    const progressMap = new Map()
+    for (const p of progresses) {
+      const pct = p.duration ? p.currentTime / p.duration : 0
+      progressMap.set(p.mediaItemId, { isFinished: p.isFinished, pct, rating: p.rating })
+    }
+
+    const bookIds = [...progressMap.keys()]
     const books = await Database.bookModel.findAll({
       where: { id: bookIds },
-      include: [{ model: Database.authorModel, through: { attributes: [] } }]
+      include: [
+        { model: Database.authorModel, through: { attributes: [] } },
+        { model: Database.seriesModel, through: { attributes: [] }, required: false }
+      ]
     })
 
-    const genres = {}
-    const authors = {}
-    const narrators = {}
-    const themes = {}
+    const genres = {}, authors = {}, narrators = {}, series = {}, themes = {}
+    const lowGenres = {} // genres from abandoned/low-rated books
     let totalDuration = 0
 
     for (const book of books) {
-      this.tallyItems(genres, book.genres)
-      this.tallyItems(narrators, book.narrators)
-      if (book.authors) {
-        this.tallyItems(authors, book.authors.map((a) => a.name))
+      const prog = progressMap.get(book.id) || {}
+      // Book Genome: implicit rating from progress
+      let rating = prog.rating
+      if (!rating) {
+        if (prog.isFinished || prog.pct > 0.8) rating = 8
+        else if (prog.pct > 0.5) rating = 7
+        else if (prog.pct > 0.1) rating = 6
+        else rating = 4 // started but abandoned
       }
-      if (book.description) {
-        const bookThemes = this.extractThemes(book.description)
-        for (const [word, count] of Object.entries(bookThemes)) {
-          themes[word] = (themes[word] || 0) + count
+
+      const weight = (rating - 5) / 5.0 // CineCross formula: -1.0 to +1.0
+
+      if (weight > 0) {
+        this.tallyWeighted(genres, book.genres, weight)
+        this.tallyWeighted(narrators, book.narrators, weight)
+        if (book.authors) this.tallyWeighted(authors, book.authors.map((a) => a.name), weight)
+        if (book.series) this.tallyWeighted(series, book.series.map((s) => s.name), weight)
+        if (book.description) {
+          const bookThemes = this.extractThemes(book.description)
+          for (const [word, count] of Object.entries(bookThemes)) {
+            themes[word] = (themes[word] || 0) + count * weight
+          }
         }
+      } else {
+        // Track genres from abandoned/disliked books for anti-recs
+        this.tallyWeighted(lowGenres, book.genres, Math.abs(weight))
       }
       totalDuration += book.duration || 0
     }
 
     const profile = {
-      userId,
-      genres,
-      authors,
-      narrators,
-      themes,
+      userId, genres, authors, narrators, series, themes, lowGenres,
       topGenres: this.topN(genres, 10),
       topAuthors: this.topN(authors, 10),
       topNarrators: this.topN(narrators, 10),
+      topSeries: this.topN(series, 5),
       topThemes: this.topN(themes, 20),
       avgBookLength: books.length ? totalDuration / books.length : 0,
       totalListeningTime: totalDuration,
-      booksFinished: books.length,
+      booksFinished: books.filter((b) => progressMap.get(b.id)?.isFinished).length,
+      booksStarted: books.length,
       readBookIds: new Set(bookIds),
       updatedAt: Date.now()
     }
 
     this.profiles.set(userId, profile)
     return profile
+  }
+
+  tallyWeighted(map, items, weight) {
+    if (!items) return
+    for (const item of items) {
+      if (item) map[item] = (map[item] || 0) + weight
+    }
   }
 
   async getRecommendations(userId, category = 'all') {
@@ -124,10 +153,16 @@ class RecommendationManager {
 
     const categoryMap = {
       dna: () => this.getDnaMatch(profile, readBookIds),
+      dna_match: () => this.getDnaMatch(profile, readBookIds),
       authors: () => this.getAuthorsYouLove(profile, readBookIds),
+      authors_you_love: () => this.getAuthorsYouLove(profile, readBookIds),
       narrators: () => this.getNarratorsYouLove(profile, readBookIds),
+      narrators_you_love: () => this.getNarratorsYouLove(profile, readBookIds),
       series: () => this.getCompleteSeries(userId),
-      gems: () => this.getHiddenGems(profile, readBookIds)
+      complete_series: () => this.getCompleteSeries(userId),
+      gems: () => this.getHiddenGems(profile, readBookIds),
+      hidden_gems: () => this.getHiddenGems(profile, readBookIds),
+      anti: () => this.getAntiRecommendations(profile, readBookIds),
     }
 
     if (category !== 'all' && categoryMap[category]) {
@@ -152,44 +187,38 @@ class RecommendationManager {
    * @param {Object} profile
    * @returns {number}
    */
+  /**
+   * Book Genome scoring — weighted taste profile match.
+   * Ported from CineCross Movie Genome via BrainyCat.
+   * authors: 2.0x, narrators: 1.5x, series: 1.5x, genres: 1.0x, themes: 0.5x
+   * Rating boost: score *= (0.5 + avgRating/20)
+   */
   scoreBook(book, profile) {
     let score = 0
-    let maxScore = 0
 
-    // Genre scoring
     if (book.genres) {
-      for (const g of book.genres) {
-        if (profile.genres[g]) score += profile.genres[g] * WEIGHTS.genre
-      }
+      for (const g of book.genres) score += (profile.genres[g] || 0) * WEIGHTS.genre
     }
-    maxScore += Object.values(profile.genres).reduce((s, v) => s + v, 0) * WEIGHTS.genre || 1
-
-    // Narrator scoring
     if (book.narrators) {
-      for (const n of book.narrators) {
-        if (profile.narrators[n]) score += profile.narrators[n] * WEIGHTS.narrator
-      }
+      for (const n of book.narrators) score += (profile.narrators[n] || 0) * WEIGHTS.narrator
     }
-    maxScore += Object.values(profile.narrators).reduce((s, v) => s + v, 0) * WEIGHTS.narrator || 1
-
-    // Author scoring
     if (book.authorNames) {
-      for (const a of book.authorNames) {
-        if (profile.authors[a]) score += profile.authors[a] * WEIGHTS.author
-      }
+      for (const a of book.authorNames) score += (profile.authors[a] || 0) * WEIGHTS.author
     }
-    maxScore += Object.values(profile.authors).reduce((s, v) => s + v, 0) * WEIGHTS.author || 1
-
-    // Theme scoring
+    if (book.seriesNames) {
+      for (const s of book.seriesNames) score += (profile.series[s] || 0) * WEIGHTS.series
+    }
     if (book.description) {
       const bookThemes = this.extractThemes(book.description)
       for (const [word, count] of Object.entries(bookThemes)) {
-        if (profile.themes[word]) score += Math.min(count, profile.themes[word]) * WEIGHTS.theme
+        if (profile.themes[word]) score += Math.min(count, 3) * profile.themes[word] * WEIGHTS.theme
       }
     }
-    maxScore += Object.values(profile.themes).reduce((s, v) => s + v, 0) * WEIGHTS.theme || 1
 
-    return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0
+    // Rating boost (CineCross formula)
+    if (book.avgRating) score *= (0.5 + book.avgRating / 20)
+
+    return Math.round(score * 100) / 100
   }
 
   /**
@@ -338,7 +367,6 @@ class RecommendationManager {
     const books = this.filterByPreferences(await this.getUnreadBooks(readBookIds), profile)
     if (!books.length) return []
 
-    // Get completion stats for all books
     const allProgress = await Database.mediaProgressModel.findAll({
       where: { mediaItemType: 'book' },
       attributes: ['mediaItemId', 'isFinished']
@@ -356,7 +384,7 @@ class RecommendationManager {
     return books
       .map((b) => {
         const s = stats[b.id]
-        if (!s || s.total > 10 || s.total === 0) return null // skip popular or unlistened
+        if (!s || s.total > 10 || s.total === 0) return null
         const completionRate = s.finished / s.total
         const genreMatch = b.genres.some((g) => topGenreSet.has(g))
         if (completionRate < 0.5 || !genreMatch) return null
@@ -365,6 +393,28 @@ class RecommendationManager {
       .filter(Boolean)
       .sort((a, b) => b.score - a.score)
       .slice(0, 20)
+  }
+
+  /**
+   * Anti-recommendations — books you'd probably dislike.
+   * Based on genres/tags from abandoned or low-rated books.
+   * Ported from CineCross/BrainyCat Book Genome.
+   */
+  async getAntiRecommendations(profile, readBookIds) {
+    if (!profile.lowGenres || !Object.keys(profile.lowGenres).length) return []
+    const books = await this.getUnreadBooks(readBookIds)
+    const lowGenreSet = new Set(Object.keys(profile.lowGenres))
+
+    return books
+      .map((b) => {
+        const matchedGenres = (b.genres || []).filter((g) => lowGenreSet.has(g))
+        if (!matchedGenres.length) return null
+        const antiScore = matchedGenres.reduce((s, g) => s + (profile.lowGenres[g] || 0), 0)
+        return { ...b, antiScore: Math.round(antiScore * 100) / 100, reason: `genres: ${matchedGenres.join(', ')}` }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.antiScore - a.antiScore)
+      .slice(0, 10)
   }
 }
 
