@@ -45,7 +45,7 @@ class AutoTagManager {
       try {
         const SyncManager = require('./SyncManager')
         fullText = await SyncManager.extractEbookText(book.ebookFile.metadata.path, 200000)
-      } catch {}
+      } catch (err) { Logger.debug(`[AutoTagManager] ${err.message}`) }
     }
 
     if (!fullText && metadata.description) {

@@ -9,8 +9,8 @@ const axios = require('axios').default
  * Priority: L'Intello API (Piper TTS + Groq Whisper) → local binary fallback.
  */
 
-const INTELLO_URL = process.env.INTELLO_URL || process.env.AIROUTER_URL || ''
-const INTELLO_TOKEN = process.env.INTELLO_TOKEN || ''
+const { INTELLO_URL, INTELLO_TOKEN, headers: intelloHeaders } = require('./intelloClient')
+
 const TTS_BIN = process.env.TTS_BIN || 'piper'
 
 const PIPER_MODELS = {
@@ -19,7 +19,7 @@ const PIPER_MODELS = {
   pt: 'pt_BR-faber-medium', ru: 'ru_RU-irina-medium',
 }
 
-function _intelloHeaders() {
+function _intelloHeaders() { return intelloHeaders() }; function _intelloHeaders_old() {
   const h = {}
   if (INTELLO_TOKEN) h['Authorization'] = `Bearer ${INTELLO_TOKEN}`
   return h

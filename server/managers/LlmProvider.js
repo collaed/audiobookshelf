@@ -1,4 +1,5 @@
 const axios = require('axios').default
+const { INTELLO_URL, INTELLO_TOKEN } = require("../utils/intelloClient")
 const Logger = require('../Logger')
 
 /**
@@ -20,8 +21,8 @@ class LlmProvider {
     this.provider = process.env.LLM_PROVIDER || 'disabled' // airouter | ollama | openai | custom | disabled
     this.config = {
       airouter: {
-        baseUrl: process.env.INTELLO_URL || process.env.AIROUTER_URL || 'http://intello:8000',
-        token: process.env.INTELLO_TOKEN || process.env.AIROUTER_TOKEN || '',
+        baseUrl: INTELLO_URL,
+        token: INTELLO_TOKEN,
         model: 'auto', // intello picks the best
       },
       ollama: {

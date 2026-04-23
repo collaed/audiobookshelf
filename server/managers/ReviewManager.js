@@ -118,7 +118,7 @@ class ReviewManager {
       try {
         const rev = await axios.get(`https://openlibrary.org${worksKey}/reviews.json`, { timeout: this.timeout })
         reviews = (rev.data?.entries || []).slice(0, 5).map((e) => e.body?.value || e.body || '').filter(Boolean)
-      } catch {}
+      } catch (err) { Logger.debug(`[ReviewManager] ${err.message}`) }
 
       return {
         source: 'OpenLibrary',

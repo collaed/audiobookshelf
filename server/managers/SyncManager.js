@@ -1,4 +1,5 @@
 const Path = require('path')
+const { INTELLO_URL } = require("../utils/intelloClient")
 const { execFile } = require('child_process')
 const Logger = require('../Logger')
 const Database = require('../Database')
@@ -84,7 +85,7 @@ class SyncManager {
         end: s.end + startSec,
         text: s.text
       }))
-    } catch {}
+    } catch (err) { Logger.debug(`[SyncManager] ${err.message}`) }
 
     // Cleanup
     await fs.remove(samplePath).catch(() => {})

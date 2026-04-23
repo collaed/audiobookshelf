@@ -35,7 +35,7 @@ class FtsManager {
       try {
         const SyncManager = require('./SyncManager')
         content = await SyncManager.extractEbookText(book.ebookFile.metadata.path, 100000)
-      } catch {}
+      } catch (err) { Logger.debug(`[FtsManager] ${err.message}`) }
     }
 
     const author = book.authors?.map(a => a.name).join(', ') || ''

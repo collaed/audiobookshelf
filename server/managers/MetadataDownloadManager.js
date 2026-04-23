@@ -182,7 +182,7 @@ class MetadataDownloadManager {
       try {
         const { data } = await axios.get(`https://api.audnex.us/books/${asin}`, { timeout: this.timeout })
         if (data) results.push(this._cleanAudnexus(data))
-      } catch {}
+      } catch (err) { Logger.debug(`[MetadataDownloadManager] ${err.message}`) }
     }
     if (!results.length && title) {
       try {
@@ -193,10 +193,10 @@ class MetadataDownloadManager {
             try {
               const { data: full } = await axios.get(`https://api.audnex.us/books/${p.asin}?region=us`, { timeout: this.timeout })
               if (full) results.push(this._cleanAudnexus(full))
-            } catch {}
+            } catch (err) { Logger.debug(`[MetadataDownloadManager] ${err.message}`) }
           }
         }
-      } catch {}
+      } catch (err) { Logger.debug(`[MetadataDownloadManager] ${err.message}`) }
     }
     return results
   }

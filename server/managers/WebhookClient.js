@@ -1,5 +1,5 @@
 const crypto = require('crypto')
-const axios = require('axios').default
+const intello = require("../utils/intelloClient")
 const Logger = require('../Logger')
 
 /**
@@ -9,8 +9,8 @@ const Logger = require('../Logger')
 class WebhookClient {
   constructor() {
     this.secret = process.env.WEBHOOK_SECRET || 'abs_webhook_2026'
-    this.intelloUrl = process.env.INTELLO_URL || 'http://intello:8000'
-    this.intelloToken = process.env.INTELLO_TOKEN || ''
+    
+    
   }
 
   verifySignature(payload, signature) {
@@ -46,13 +46,13 @@ class WebhookClient {
 
   async registerWithIntello(absUrl) {
     try {
-      const headers = { 'Content-Type': 'application/json' }
-      if (this.intelloToken) headers['Authorization'] = `Bearer ${this.intelloToken}`
-      await axios.post(`${this.intelloUrl}/api/webhooks`, {
+      const { headers, INTELLO_URL } = require('../utils/intelloClient')
+      
+      await axios.post(`${INTELLO_URL}/api/webhooks`, {
         url: `${absUrl}/api/webhooks/intello`,
         events: ['ocr.complete', 'literary.analysis_complete', 'scheduler.task_complete'],
         secret: this.secret,
-      }, { headers, timeout: 10000 })
+      }, { headers: headers(), timeout: 10000 })
       Logger.info(`[WebhookClient] Registered webhook with L'Intello`)
       return true
     } catch (err) {

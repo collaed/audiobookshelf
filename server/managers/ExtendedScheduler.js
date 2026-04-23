@@ -42,7 +42,7 @@ class ExtendedScheduler {
           }
         }
         if (cleared) Logger.info(`[ExtendedScheduler] Cleared ${cleared} expired review cache entries`)
-      } catch {}
+      } catch (err) { Logger.debug(`[ExtendedScheduler] ${err.message}`) }
     })
 
     // Check incoming folder (every 5 min)
@@ -52,7 +52,7 @@ class ExtendedScheduler {
         if (IncomingManager.incomingPath) {
           await IncomingManager.scanIncoming()
         }
-      } catch {}
+      } catch (err) { Logger.debug(`[ExtendedScheduler] ${err.message}`) }
     })
 
     Logger.info(`[ExtendedScheduler] Started ${this.intervals.length} scheduled tasks`)
