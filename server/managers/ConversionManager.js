@@ -6,13 +6,8 @@ const fs = require('../libs/fsExtra')
 
 /**
  * Ebook format conversion using Calibre's ebook-convert CLI.
- * Calibre must be installed on the host (or in Docker image).
- *
- * Key Calibre features captured:
- * - Format conversion (epub↔mobi↔azw3↔pdf↔txt)
- * - Metadata embedding (title, author, series, cover)
- * - Auto table-of-contents generation
- * - Font/margin customization
+ * Calibre is optional — if not installed, conversion endpoints return a clear error.
+ * BrainyCat handles conversion when Calibre is not available in this container.
  */
 class ConversionManager {
   constructor() {
@@ -39,7 +34,7 @@ class ConversionManager {
    */
   async convert(inputPath, outputFormat, options = {}) {
     if (!await this.isAvailable()) {
-      throw new Error('Calibre ebook-convert not found. Install Calibre or set CALIBRE_BIN env var.')
+      throw new Error('Ebook conversion unavailable — Calibre not installed. Use BrainyCat for format conversion.')
     }
 
     const ext = outputFormat.startsWith('.') ? outputFormat : `.${outputFormat}`
