@@ -4,10 +4,10 @@ on:
   pull_request:
   push:
     branches-ignore:
-      - 'dependabot/**' # Don't run dependabot branches, as they are already covered by pull requests
-    # Only build when files in these directories have been changed
+      - 'dependabot/**'
     paths:
       - client/**
+      - client-v3/**
       - server/**
       - test/**
       - index.js
@@ -26,9 +26,6 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: install pkg (using yao-pkg fork for targeting node20)
-        run: npm install -g @yao-pkg/pkg
-
       - name: get client dependencies
         working-directory: client
         run: npm ci
@@ -37,16 +34,41 @@ jobs:
         working-directory: client
         run: npm run generate
 
+      - name: get Vue 3 client dependencies
+        working-directory: client-v3
+        run: npm ci
+
+      - name: build Vue 3 client
+        working-directory: client-v3
+        run: npm run generate
+
       - name: get server dependencies
         run: npm ci --only=production
 
-      - name: build binary
-        run: pkg -t node20-linux-x64 -o audiobookshelf .
-
-      - name: run audiobookshelf
+      - name: download nusqlite3
         run: |
-          ./audiobookshelf &
+          mkdir -p vendor
+          curl -L -o vendor/libnusqlite3.zip "https://github.com/mikiher/nunicode-binaries/releases/download/v1.2/libnusqlite3-linux-x64.zip"
+          sudo mkdir -p /usr/local/lib/nusqlite3
+          sudo unzip vendor/libnusqlite3.zip -d /usr/local/lib/nusqlite3
+
+      - name: run unit tests
+        run: npm test
+
+      - name: run server
+        run: |
+          node index.js &
           sleep 5
+        env:
+          PORT: 3333
+          CONFIG_PATH: /tmp/abs-config
+          METADATA_PATH: /tmp/abs-metadata
 
       - name: test if server is available
         run: curl -sf http://127.0.0.1:3333 | grep Audiobookshelf
+
+      - name: test API responds
+        run: |
+          curl -sf http://127.0.0.1:3333/status | grep isInit
+          curl -sf http://127.0.0.1:3333/api/fts/status || true
+          curl -sf http://127.0.0.1:3333/api/ai/status || true
