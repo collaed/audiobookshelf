@@ -38,9 +38,12 @@ jobs:
         run: npm test
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
+      - name: Install Python deps
+        run: pip install pytest ruff
 
       - name: Run Python agent tests
         run: python3 -m pytest test/agent/ -v
@@ -49,6 +52,4 @@ jobs:
         run: npx eslint server/managers/ server/controllers/ server/utils/ --max-warnings=100 || true
 
       - name: Lint (Ruff)
-        run: |
-          pip install ruff
-          ruff check agent/
+        run: ruff check agent/
